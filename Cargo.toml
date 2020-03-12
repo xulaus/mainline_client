@@ -1,0 +1,5 @@
+[package]
+name = "mainline_client"
+version = "0.0.1"
+authors = ["Richard Fitzgerald"]
+edition = "2018"
