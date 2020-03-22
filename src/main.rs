@@ -17,9 +17,9 @@ fn main() {
     let magnet5 = "magnet:?xt=urn:btih:c12fe1c06bba254a9dc9f519b335aa7c1367a88a";
     println!("{:?}", magnet::parse(magnet5));
 
-    let krpc1 = messages::KRPCMessage::from_bencode("d1:t1:11:y1:ee");
+    let krpc1 = messages::KRPCMessage::from_bencode("d1:q4:ping1:t1:11:y1:qe");
     println!("{:?}", krpc1);
-
-    let krpc2 = messages::KRPCMessage::from_bencode("d1:y1:e1:t0:3:abcd1:e1:f4:listl1:a2:xzeee");
+ // 3:abcd1:e1:f4:listl1:a2:xzee
+    let krpc2 = messages::KRPCMessage::from_bencode("d1:eli204e4:OKOKe1:y1:e1:t0:e");
     println!("{:?}", krpc2);
 }

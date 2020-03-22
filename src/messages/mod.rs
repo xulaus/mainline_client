@@ -11,27 +11,10 @@ pub enum KRPCError {
 }
 
 #[derive(Debug, PartialEq)]
-pub struct KRPCPing {
-    id: [u8; 20],
-}
-
-#[derive(Debug, PartialEq)]
-pub struct KRPCFindNode {
-    id: [u8; 20],
-    target: String,
-}
-
-#[derive(Debug, PartialEq)]
-pub struct KRPCGetPeers {
-    id: [u8; 20],
-    info_hash: String,
-}
-
-#[derive(Debug, PartialEq)]
 pub enum KRPCQuery {
-    Ping(KRPCPing),
-    FindNode(KRPCFindNode),
-    GetPeers(KRPCGetPeers),
+    Ping { id: [u8; 20] },
+    FindNode { id: [u8; 20], target: [u8; 20] },
+    GetPeers { id: [u8; 20], info_hash: [u8; 20] },
 }
 
 #[derive(Debug, PartialEq)]
@@ -83,9 +66,19 @@ impl FromBencode for KRPCMessage {
             Response,
             Unknown,
         }
+        enum QueryType {
+            Ping,
+            FindNode,
+            GetPeers,
+            AnnouncePeer,
+            Unknown,
+        };
         let mut transaction_id: Option<&str> = None;
         let mut message_type = MessageType::Unknown;
+        let mut query_type = QueryType::Unknown;
+
         let mut error_details: Option<KRPCError> = None;
+        let mut query_details: Option<Dict> = None;
         let top_level = Bencode { buffer: serialised }.as_dict()?;
 
         for kv in top_level {
@@ -123,6 +116,17 @@ impl FromBencode for KRPCMessage {
                     }
                     _ => return Err(DecodingError::RequiredFieldOfWrongType),
                 },
+                "q" => match kv.value {
+                    Value::String("ping") => query_type = QueryType::Ping,
+                    Value::String("find_node") => query_type = QueryType::FindNode,
+                    Value::String("get_peers") => query_type = QueryType::GetPeers,
+                    Value::String("announce_peer") => query_type = QueryType::GetPeers,
+                    _ => return Err(DecodingError::RequiredFieldOfWrongType),
+                },
+                "a" => match kv.value {
+                    Value::Dict(dict) => query_details = Some(dict),
+                    _ => return Err(DecodingError::RequiredFieldOfWrongType),
+                },
                 _ => (),
             }
         }
@@ -135,6 +139,10 @@ impl FromBencode for KRPCMessage {
                 MessageType::Error => KRPCMessageDetails::Error(
                     error_details.ok_or(DecodingError::MissingRequiredField)?,
                 ),
+                MessageType::Query => KRPCMessageDetails::Query(match query_type {
+                    QueryType::Ping => KRPCQuery::Ping { id: [0; 20] },
+                    _ => return Err(DecodingError::MissingRequiredField),
+                }),
                 _ => return Err(DecodingError::MissingRequiredField),
             },
         })
