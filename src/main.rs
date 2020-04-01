@@ -3,23 +3,44 @@
 
 mod magnet;
 mod messages;
+
 use messages::bencode::FromBencode;
+use messages::KRPCMessage;
+
+use std::net::{Ipv4Addr, SocketAddrV4, UdpSocket};
+use std::time::Duration;
+
+fn grab_socket() -> Result<UdpSocket, std::io::Error> {
+    let localhost = Ipv4Addr::new(127, 0, 0, 1);
+    let socket = SocketAddrV4::new(localhost, 0);
+    UdpSocket::bind(socket)
+}
 
 fn main() {
-    let magnet1 = "magnet:?xt=urn:md5:c12fe1c06bba254a9dc9f519b335aa7c";
-    println!("{:?}", magnet::parse(magnet1));
-    let magnet2 = "magnet:?xt.1=urn:md5:c12fe1c06bba254a9dc9f519b335aa7c&xt.2=urn:md5:c12adec06bba254a9dc9f519b335aa7c";
-    println!("{:?}", magnet::parse(magnet2));
-    let magnet3 = "magnet:?xt=urn:md5:c12fe1c06bba254a9dc9f519b335aa7c&dn=Great+Speeches+-+Martin+Luther+King+Jr.+-+I+Have+A+Dream.mp3";
-    println!("{:?}", magnet::parse(magnet3));
-    let magnet4 = "magnet:?xt=urn:sha1:TXGCZQTH26NL6OUQAJJPFALHG2LTGBC7&dn=Great+Speeches+-+Martin+Luther+King+Jr.+-+I+Have+A+Dream.mp3";
-    println!("{:?}", magnet::parse(magnet4));
-    let magnet5 = "magnet:?xt=urn:btih:c12fe1c06bba254a9dc9f519b335aa7c1367a88a";
-    println!("{:?}", magnet::parse(magnet5));
-
-    let krpc1 = messages::KRPCMessage::from_bencode("d1:q4:ping1:t1:11:y1:qe");
-    println!("{:?}", krpc1);
- // 3:abcd1:e1:f4:listl1:a2:xzee
-    let krpc2 = messages::KRPCMessage::from_bencode("d1:eli204e4:OKOKe1:y1:e1:t0:e");
-    println!("{:?}", krpc2);
+    match grab_socket() {
+        Ok(socket) => {
+            println!("Allocated socket {}", socket.local_addr().unwrap());
+            let msg = b"d1:ad2:id20:abcdefghij0123456789e1:q4:ping1:t2:aa1:y1:qe";
+            socket.send_to(msg, "127.0.0.1:6881").unwrap();
+            let mut buf = [0; 512];
+            socket.set_read_timeout(Some(Duration::new(10, 0)));
+            let (number_of_bytes, src_addr) =
+                socket.recv_from(&mut buf).expect("Didn't receive data");
+            let filled_buf = &mut buf[..number_of_bytes];
+            println!("{:x?}", filled_buf);
+            println!(
+                "{:?}",
+                messages::bencode::Bencode { buffer: filled_buf }.as_dict()
+            );
+            println!(
+                "Retrieved {:?} from {:?}",
+                KRPCMessage::from_bencode(filled_buf),
+                src_addr
+            );
+        }
+        Err(e) => {
+            println!("Failed to connect {}", e);
+        }
+    }
+    println!("Terminated.");
 }

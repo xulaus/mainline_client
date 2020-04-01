@@ -1,3 +1,4 @@
+use std::str::from_utf8;
 use std::{error::Error, fmt};
 
 #[derive(Debug, PartialEq)]
@@ -34,12 +35,12 @@ pub trait ToBencode {
     fn to_bencode(&self) -> String;
 }
 
-pub trait FromBencode: Sized {
-    fn from_bencode(serialised: &str) -> Result<Self, DecodingError>;
+pub trait FromBencode<'a>: Sized {
+    fn from_bencode(serialised: &'a [u8]) -> Result<Self, DecodingError>;
 }
 
 pub struct Bencode<'a> {
-    pub buffer: &'a str,
+    pub buffer: &'a [u8],
 }
 
 impl<'a> Bencode<'a> {
@@ -56,11 +57,11 @@ impl<'a> Bencode<'a> {
         }
     }
 
-    pub fn eat_integer(&self) -> Result<(&'a str, Bencode<'a>), DecodingError> {
+    pub fn eat_integer(&self) -> Result<(&'a [u8], Bencode<'a>), DecodingError> {
         // TODO: Should be errors
         assert!(self.buffer.len() >= 3);
         assert_eq!(self.peek(), Some('i'));
-        let mut tokens = self.buffer.splitn(2, "e");
+        let mut tokens = self.buffer.splitn(2, |x| *x == 'e' as u8);
         let int = tokens.next().ok_or(DecodingError::UnexpectedEOF)?;
         let rest_of_buffer = tokens.next().ok_or(DecodingError::UnexpectedEOF)?;
         Ok((
@@ -125,11 +126,14 @@ impl<'a> Bencode<'a> {
         }
     }
 
-    pub fn eat_str(&self) -> Result<(&'a str, Bencode<'a>), DecodingError> {
-        let mut tokens = self.buffer.splitn(2, ":");
+    pub fn eat_str(&self) -> Result<(&'a [u8], Bencode<'a>), DecodingError> {
+        let mut tokens = self.buffer.splitn(2, |x| *x == ':' as u8);
         let key_len = tokens.next().ok_or(DecodingError::UnexpectedEOF)?;
         let rest_of_key = tokens.next().ok_or(DecodingError::UnexpectedEOF)?;
-        let string_len: usize = key_len
+        let len_string = from_utf8(key_len)
+            .ok()
+            .ok_or(DecodingError::InvalidStringLength)?;
+        let string_len: usize = len_string
             .parse()
             .ok()
             .ok_or(DecodingError::InvalidStringLength)?;
@@ -159,8 +163,14 @@ impl<'a> Bencode<'a> {
             }
             Some('i') => {
                 let (i, b) = self.eat_integer()?;
+                let int_string = from_utf8(i).ok().ok_or(DecodingError::InvalidInteger)?;
                 Ok((
-                    Value::Integer(i.parse().ok().ok_or(DecodingError::InvalidInteger)?),
+                    Value::Integer(
+                        int_string
+                            .parse()
+                            .ok()
+                            .ok_or(DecodingError::InvalidInteger)?,
+                    ),
                     b,
                 ))
             }
@@ -169,13 +179,13 @@ impl<'a> Bencode<'a> {
     }
 
     pub fn peek(&self) -> Option<char> {
-        self.buffer.chars().nth(0)
+        self.buffer.first().map(|x| *x as char)
     }
 }
 
 #[derive(Debug)]
 pub enum Value<'a> {
-    String(&'a str),
+    String(&'a [u8]),
     Dict(Dict<'a>),
     List(List<'a>),
     Integer(i64),
@@ -183,7 +193,7 @@ pub enum Value<'a> {
 
 #[derive(Debug)]
 pub struct DictKVPair<'a> {
-    pub key: &'a str,
+    pub key: &'a [u8],
     pub value: Value<'a>,
 }
 
@@ -200,7 +210,8 @@ impl<'a> fmt::Debug for Dict<'a> {
         };
         let mut builder = f.debug_struct("");
         for kv in copy {
-            builder.field(kv.key, &kv.value);
+            let key = format!("{:x?}", kv.key);
+            builder.field(&key, &kv.value);
         }
         builder.finish()
     }
