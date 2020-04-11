@@ -39,8 +39,8 @@ pub enum KRPCMessageDetails<'a> {
 
 #[derive(Debug, PartialEq)]
 pub struct KRPCMessage<'a> {
-    transaction_id: &'a [u8],
-    message: KRPCMessageDetails<'a>,
+    pub transaction_id: &'a [u8],
+    pub message: KRPCMessageDetails<'a>,
 }
 
 impl<'a> ToBencode for KRPCMessage<'a> {
@@ -70,10 +70,10 @@ impl<'a> ToBencode for KRPCMessage<'a> {
                 }
             },
             KRPCMessageDetails::Query(q) => match q {
-                KRPCQuery::Ping { id: id } => {
+                KRPCQuery::Ping { id } => {
                     vec1.extend(b"1:ad2:id20:");
                     vec1.extend(*id);
-                    vec1.extend(b"e");
+                    vec1.extend(b"e1:q4:ping");
                 }
                 _ => (),
             },
@@ -186,6 +186,20 @@ impl<'a> FromBencode<'a> for KRPCMessage<'a> {
                     }
                     _ => return Err(DecodingError::RequiredFieldOfWrongType),
                 },
+                b"a" => match kv.value {
+                    Value::Dict(mid) => {
+                        for qdkv in mid {
+                            match qdkv.key {
+                                b"id" => match qdkv.value {
+                                    Value::String(id) => other_id = to_20_bytes(id),
+                                    _ => return Err(DecodingError::RequiredFieldOfWrongType),
+                                },
+                                _ => (),
+                            }
+                        }
+                    }
+                    _ => return Err(DecodingError::RequiredFieldOfWrongType),
+                },
                 _ => (),
             }
         }
@@ -251,16 +265,27 @@ mod tests {
         );
 
         // Error examples from spec
-        let krpc_error_1 =
-            KRPCMessage::from_bencode(b"d1:eli201e23:A Generic Error Ocurrede1:t2:aa1:y1:ee");
-        assert_eq!(
-            krpc_error_1,
-            Ok(KRPCMessage {
-                transaction_id: b"aa",
-                message: KRPCMessageDetails::Error(KRPCError::GenericError(
-                    "A Generic Error Ocurred".to_string(),
-                ))
-            })
-        );
+        let krpc_error_1 = KRPCMessage {
+            transaction_id: b"aa",
+            message: KRPCMessageDetails::Error(KRPCError::GenericError(
+                "A Generic Error Ocurred".to_string(),
+            )),
+        };
+        let krpc_error_1_encoded = b"d1:eli201e23:A Generic Error Ocurrede1:t2:aa1:y1:ee";
+        let krpc_error_1_decoded = KRPCMessage::from_bencode(krpc_error_1_encoded);
+        assert_eq!(krpc_error_1.to_bencode(), krpc_error_1_encoded.to_vec());
+        assert_eq!(krpc_error_1_decoded, Ok(krpc_error_1));
+
+        // Ping example from spec
+        let krpc_ping_1 = KRPCMessage {
+            transaction_id: b"aa",
+            message: KRPCMessageDetails::Query(KRPCQuery::Ping {
+                id: b"abcdefghij0123456789",
+            }),
+        };
+        let krpc_ping_1_encoded = b"d1:ad2:id20:abcdefghij0123456789e1:q4:ping1:t2:aa1:y1:qe";
+        let krpc_ping_1_decoded = KRPCMessage::from_bencode(krpc_ping_1_encoded);
+        assert_eq!(krpc_ping_1.to_bencode(), krpc_ping_1_encoded.to_vec());
+        assert_eq!(krpc_ping_1_decoded, Ok(krpc_ping_1));
     }
 }

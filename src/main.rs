@@ -4,8 +4,8 @@
 mod magnet;
 mod messages;
 
-use messages::bencode::FromBencode;
-use messages::KRPCMessage;
+use messages::bencode::{FromBencode, ToBencode};
+use messages::*;
 
 use std::net::{Ipv4Addr, SocketAddrV4, UdpSocket};
 use std::time::Duration;
@@ -20,10 +20,18 @@ fn main() {
     match grab_socket() {
         Ok(socket) => {
             println!("Allocated socket {}", socket.local_addr().unwrap());
-            let msg = b"d1:ad2:id20:abcdefghij0123456789e1:q4:ping1:t2:aa1:y1:qe";
-            socket.send_to(msg, "127.0.0.1:6881").unwrap();
+            let msg = KRPCMessage {
+                transaction_id: b"aa",
+                message: KRPCMessageDetails::Query(KRPCQuery::Ping {
+                    id: b"abcdefghij0123456789",
+                }),
+            }
+            .to_bencode();
+            socket.send_to(&msg, "127.0.0.1:6881").unwrap();
             let mut buf = [0; 512];
-            socket.set_read_timeout(Some(Duration::new(10, 0)));
+            socket
+                .set_read_timeout(Some(Duration::new(10, 0)))
+                .expect("Can't set timout");
             let (number_of_bytes, src_addr) =
                 socket.recv_from(&mut buf).expect("Didn't receive data");
             let filled_buf = &mut buf[..number_of_bytes];
