@@ -82,7 +82,13 @@ impl<'a> ToBencode for KRPCMessage<'a> {
                     vec1.extend(*info_hash);
                     vec1.extend(b"e1:q9:get_peers");
                 }
-                _ => (),
+                KRPCQuery::FindNode { id, target } => {
+                    vec1.extend(b"1:ad2:id20:");
+                    vec1.extend(*id);
+                    vec1.extend(b"6:target20:");
+                    vec1.extend(*target);
+                    vec1.extend(b"e1:q9:find_node");
+                }
             },
             KRPCMessageDetails::Response(q) => match q {
                 _ => (),
@@ -115,6 +121,8 @@ fn to_20_bytes<'a>(i: &'a [u8]) -> Option<&'a [u8; 20]> {
 
 impl<'a> FromBencode<'a> for KRPCMessage<'a> {
     fn from_bencode(serialised: &'a [u8]) -> Result<KRPCMessage, DecodingError> {
+        // eww
+
         enum MessageType {
             Query,
             Error,
@@ -133,6 +141,7 @@ impl<'a> FromBencode<'a> for KRPCMessage<'a> {
         let mut query_type = QueryType::Unknown;
         let mut other_id: Option<&[u8; 20]> = None;
         let mut info_hash: Option<&[u8; 20]> = None;
+        let mut target: Option<&[u8; 20]> = None;
 
         let mut error_details: Option<KRPCError> = None;
         let top_level = Bencode { buffer: serialised }.as_dict()?;
@@ -206,6 +215,10 @@ impl<'a> FromBencode<'a> for KRPCMessage<'a> {
                                     Value::String(id) => info_hash = to_20_bytes(id),
                                     _ => return Err(DecodingError::RequiredFieldOfWrongType),
                                 },
+                                b"target" =>match qdkv.value {
+                                    Value::String(id) => target = to_20_bytes(id),
+                                    _ => return Err(DecodingError::RequiredFieldOfWrongType),
+                                },
                                 _ => (),
                             }
                         }
@@ -231,6 +244,10 @@ impl<'a> FromBencode<'a> for KRPCMessage<'a> {
                     QueryType::GetPeers => KRPCQuery::GetPeers {
                         id: other_id.ok_or(DecodingError::MissingRequiredField)?,
                         info_hash: info_hash.ok_or(DecodingError::MissingRequiredField)?
+                    },
+                    QueryType::FindNode => KRPCQuery::FindNode {
+                        id: other_id.ok_or(DecodingError::MissingRequiredField)?,
+                        target: target.ok_or(DecodingError::MissingRequiredField)?
                     },
                     _ => return Err(DecodingError::MissingRequiredField),
                 }),
@@ -316,5 +333,19 @@ mod tests {
         let krpc_get_peers_1_decoded = KRPCMessage::from_bencode(krpc_get_peers_1_encoded);
         assert_eq!(krpc_get_peers_1.to_bencode(), krpc_get_peers_1_encoded.to_vec());
         assert_eq!(krpc_get_peers_1_decoded, Ok(krpc_get_peers_1));
+
+        // Find Node from spec
+        let krpc_find_node_1 = KRPCMessage {
+            transaction_id: b"aa",
+            message: KRPCMessageDetails::Query(KRPCQuery::FindNode {
+                id: b"abcdefghij0123456789",
+                target: b"mnopqrstuvwxyz123456"
+            }),
+        };
+        let krpc_find_node_1_encoded = b"d1:ad2:id20:abcdefghij01234567896:target20:mnopqrstuvwxyz123456e1:q9:find_node1:t2:aa1:y1:qe";
+        let krpc_find_node_1_decoded = KRPCMessage::from_bencode(krpc_find_node_1_encoded);
+        assert_eq!(krpc_find_node_1.to_bencode(), krpc_find_node_1_encoded.to_vec());
+        assert_eq!(krpc_find_node_1_decoded, Ok(krpc_find_node_1));
+
     }
 }
