@@ -32,7 +32,7 @@ impl fmt::Display for DecodingError {
 }
 
 pub trait ToBencode {
-    fn to_bencode(&self) -> String;
+    fn to_bencode(&self) -> Vec<u8>;
 }
 
 pub trait FromBencode<'a>: Sized {

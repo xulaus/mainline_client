@@ -44,35 +44,57 @@ pub struct KRPCMessage<'a> {
 }
 
 impl<'a> ToBencode for KRPCMessage<'a> {
-    fn to_bencode(&self) -> String {
-        let message_type = match self.message {
-            KRPCMessageDetails::Error(_) => "e",
-            KRPCMessageDetails::Query(_) => "q",
-            KRPCMessageDetails::Response(_) => "r",
-        };
+    fn to_bencode(&self) -> Vec<u8> {
+        // This method is dogshite. Relies on coincidence to order the
+        // encoded message correctly. Rewrite would be hard without more allocations though
+        // and it works for now
+        let mut vec1 = Vec::with_capacity(256);
+        vec1.push('d' as u8);
 
-        let message_contents = match &self.message {
+        match &self.message {
             KRPCMessageDetails::Error(err) => match err {
-                KRPCError::UnknownError(msg) => format!("1:eli201e{}:{}e", msg.len(), msg),
-                KRPCError::GenericError(msg) => format!("1:eli201e{}:{}e", msg.len(), msg),
-                KRPCError::ServerError(msg) => format!("1:eli202e{}:{}e", msg.len(), msg),
-                KRPCError::ProtocolError(msg) => format!("1:eli203e{}:{}e", msg.len(), msg),
-                KRPCError::MethodUnknown(msg) => format!("1:eli204e{}:{}e", msg.len(), msg),
+                KRPCError::UnknownError(msg) => {
+                    vec1.extend(format!("1:eli201e{}:{}e", msg.len(), msg).bytes())
+                }
+                KRPCError::GenericError(msg) => {
+                    vec1.extend(format!("1:eli201e{}:{}e", msg.len(), msg).bytes())
+                }
+                KRPCError::ServerError(msg) => {
+                    vec1.extend(format!("1:eli202e{}:{}e", msg.len(), msg).bytes())
+                }
+                KRPCError::ProtocolError(msg) => {
+                    vec1.extend(format!("1:eli203e{}:{}e", msg.len(), msg).bytes())
+                }
+                KRPCError::MethodUnknown(msg) => {
+                    vec1.extend(format!("1:eli204e{}:{}e", msg.len(), msg).bytes())
+                }
             },
             KRPCMessageDetails::Query(q) => match q {
-                _ => "".to_string(),
+                KRPCQuery::Ping { id: id } => {
+                    vec1.extend(b"1:ad2:id20:");
+                    vec1.extend(*id);
+                    vec1.extend(b"e");
+                }
+                _ => (),
             },
             KRPCMessageDetails::Response(q) => match q {
-                _ => "".to_string(),
+                _ => (),
             },
         };
-        format!(
-            "d{}1:t{}:{:x?}1:y1:{}e",
-            message_contents,
-            self.transaction_id.len(),
-            self.transaction_id,
-            message_type
-        )
+
+        vec1.extend(format!("1:t{}:", self.transaction_id.len()).bytes());
+        vec1.extend(self.transaction_id);
+
+        let message_type = match self.message {
+            KRPCMessageDetails::Error(_) => 'e' as u8,
+            KRPCMessageDetails::Query(_) => 'q' as u8,
+            KRPCMessageDetails::Response(_) => 'r' as u8,
+        };
+        vec1.extend(b"1:y1:");
+        vec1.push(message_type);
+
+        vec1.push('e' as u8);
+        vec1
     }
 }
 
@@ -129,7 +151,8 @@ impl<'a> FromBencode<'a> for KRPCMessage<'a> {
                             _ => return Err(DecodingError::RequiredFieldOfWrongType),
                         };
                         let message: String = match raw_message {
-                            Some(Value::String(v)) => format!("{:x?}", v),
+                            Some(Value::String(v)) => String::from_utf8(v.into())
+                                .map_err(|_| DecodingError::RequiredFieldOfWrongType)?,
                             _ => return Err(DecodingError::RequiredFieldOfWrongType),
                         };
                         error_details = Some(match code {
@@ -198,42 +221,42 @@ mod tests {
     fn serialise_deserialise() {
         // Test serialise/deserialise error
         let expected = KRPCMessage {
-            transaction_id: "be".to_string(),
+            transaction_id: b"be",
             message: KRPCMessageDetails::Error(KRPCError::ServerError("".to_string())),
         };
-        assert_eq!(expected.to_bencode(), "d1:eli202e0:e1:t2:be1:y1:ee");
+        assert_eq!(expected.to_bencode(), b"d1:eli202e0:e1:t2:be1:y1:ee");
 
-        let deserialised1 = KRPCMessage::from_bencode("d1:eli202e0:e1:t2:be1:y1:ee");
+        let deserialised1 = KRPCMessage::from_bencode(b"d1:eli202e0:e1:t2:be1:y1:ee");
         assert_eq!(deserialised1, Ok(expected));
 
         // ignores unknown fields
         let deserialised2 =
-            KRPCMessage::from_bencode("d3:abc1:d1:eli203e0:1:f4:listl1:a2:xzee1:t0:1:y1:ee");
+            KRPCMessage::from_bencode(b"d3:abc1:d1:eli203e0:1:f4:listl1:a2:xzee1:t0:1:y1:ee");
         assert_eq!(
             deserialised2,
             Ok(KRPCMessage {
-                transaction_id: "".to_string(),
+                transaction_id: b"",
                 message: KRPCMessageDetails::Error(KRPCError::ProtocolError("".to_string()))
             }),
         );
 
         // MethodUnknown
-        let deserialised3 = KRPCMessage::from_bencode("d1:eli204e0:e1:t2:ee3:123le1:y1:ee");
+        let deserialised3 = KRPCMessage::from_bencode(b"d1:eli204e0:e1:t2:ee3:123le1:y1:ee");
         assert_eq!(
             deserialised3,
             Ok(KRPCMessage {
-                transaction_id: "ee".to_string(),
+                transaction_id: b"ee",
                 message: KRPCMessageDetails::Error(KRPCError::MethodUnknown("".to_string()))
             }),
         );
 
         // Error examples from spec
         let krpc_error_1 =
-            KRPCMessage::from_bencode("d1:eli201e23:A Generic Error Ocurrede1:t2:aa1:y1:ee");
+            KRPCMessage::from_bencode(b"d1:eli201e23:A Generic Error Ocurrede1:t2:aa1:y1:ee");
         assert_eq!(
             krpc_error_1,
             Ok(KRPCMessage {
-                transaction_id: "aa".to_string(),
+                transaction_id: b"aa",
                 message: KRPCMessageDetails::Error(KRPCError::GenericError(
                     "A Generic Error Ocurred".to_string(),
                 ))
