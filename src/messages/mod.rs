@@ -74,6 +74,13 @@ impl<'a> ToBencode for KRPCMessage<'a> {
                     vec1.extend(b"1:ad2:id20:");
                     vec1.extend(*id);
                     vec1.extend(b"e1:q4:ping");
+                },
+                KRPCQuery::GetPeers { id, info_hash } => {
+                    vec1.extend(b"1:ad2:id20:");
+                    vec1.extend(*id);
+                    vec1.extend(b"9:info_hash20:");
+                    vec1.extend(*info_hash);
+                    vec1.extend(b"e1:q9:get_peers");
                 }
                 _ => (),
             },
@@ -125,6 +132,7 @@ impl<'a> FromBencode<'a> for KRPCMessage<'a> {
         let mut message_type = MessageType::Unknown;
         let mut query_type = QueryType::Unknown;
         let mut other_id: Option<&[u8; 20]> = None;
+        let mut info_hash: Option<&[u8; 20]> = None;
 
         let mut error_details: Option<KRPCError> = None;
         let top_level = Bencode { buffer: serialised }.as_dict()?;
@@ -194,6 +202,10 @@ impl<'a> FromBencode<'a> for KRPCMessage<'a> {
                                     Value::String(id) => other_id = to_20_bytes(id),
                                     _ => return Err(DecodingError::RequiredFieldOfWrongType),
                                 },
+                                b"info_hash" => match qdkv.value {
+                                    Value::String(id) => info_hash = to_20_bytes(id),
+                                    _ => return Err(DecodingError::RequiredFieldOfWrongType),
+                                },
                                 _ => (),
                             }
                         }
@@ -215,6 +227,10 @@ impl<'a> FromBencode<'a> for KRPCMessage<'a> {
                 MessageType::Query => KRPCMessageDetails::Query(match query_type {
                     QueryType::Ping => KRPCQuery::Ping {
                         id: other_id.ok_or(DecodingError::MissingRequiredField)?,
+                    },
+                    QueryType::GetPeers => KRPCQuery::GetPeers {
+                        id: other_id.ok_or(DecodingError::MissingRequiredField)?,
+                        info_hash: info_hash.ok_or(DecodingError::MissingRequiredField)?
                     },
                     _ => return Err(DecodingError::MissingRequiredField),
                 }),
@@ -287,5 +303,18 @@ mod tests {
         let krpc_ping_1_decoded = KRPCMessage::from_bencode(krpc_ping_1_encoded);
         assert_eq!(krpc_ping_1.to_bencode(), krpc_ping_1_encoded.to_vec());
         assert_eq!(krpc_ping_1_decoded, Ok(krpc_ping_1));
+
+        // Get Peers from spec
+        let krpc_get_peers_1 = KRPCMessage {
+            transaction_id: b"aa",
+            message: KRPCMessageDetails::Query(KRPCQuery::GetPeers {
+                id: b"abcdefghij0123456789",
+                info_hash: b"mnopqrstuvwxyz123456"
+            }),
+        };
+        let krpc_get_peers_1_encoded = b"d1:ad2:id20:abcdefghij01234567899:info_hash20:mnopqrstuvwxyz123456e1:q9:get_peers1:t2:aa1:y1:qe";
+        let krpc_get_peers_1_decoded = KRPCMessage::from_bencode(krpc_get_peers_1_encoded);
+        assert_eq!(krpc_get_peers_1.to_bencode(), krpc_get_peers_1_encoded.to_vec());
+        assert_eq!(krpc_get_peers_1_decoded, Ok(krpc_get_peers_1));
     }
 }

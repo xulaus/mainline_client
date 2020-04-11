@@ -16,35 +16,58 @@ fn grab_socket() -> Result<UdpSocket, std::io::Error> {
     UdpSocket::bind(socket)
 }
 
+fn ping(socket: &UdpSocket, addr: &str) {
+    let mut buf = [0; 512];
+
+    let ping = KRPCMessage {
+        transaction_id: b"aa",
+        message: KRPCMessageDetails::Query(KRPCQuery::Ping {
+            id: b"abcdefghij0123456789",
+        }),
+    }.to_bencode();
+    socket.send_to(&ping, addr).unwrap();
+    let (number_of_bytes, _src_addr) =
+                socket.recv_from(&mut buf).expect("Didn't receive data");
+    let filled_buf = &mut buf[..number_of_bytes];
+    println!("{:?}", filled_buf);
+    println!(
+        "Retrieved {:?}",
+        KRPCMessage::from_bencode(filled_buf)
+    );
+}
+
+fn get_peers(socket: &UdpSocket , addr: &str) {
+    let mut buf = [0; 512];
+
+    let ping = KRPCMessage {
+        transaction_id: b"aa",
+        message: KRPCMessageDetails::Query(KRPCQuery::GetPeers {
+            id: b"abcdefghij0123456789",
+            info_hash: b"mnopqrstuvwxyz123456"
+        }),
+    }.to_bencode();
+    socket.send_to(&ping, addr).unwrap();
+    let (number_of_bytes, _src_addr) =
+                socket.recv_from(&mut buf).expect("Didn't receive data");
+    let filled_buf = &mut buf[..number_of_bytes];
+    println!("{:?}", filled_buf);
+    println!(
+        "Retrieved {:?}",
+        KRPCMessage::from_bencode(filled_buf)
+    );
+}
+
+
 fn main() {
     match grab_socket() {
         Ok(socket) => {
             println!("Allocated socket {}", socket.local_addr().unwrap());
-            let msg = KRPCMessage {
-                transaction_id: b"aa",
-                message: KRPCMessageDetails::Query(KRPCQuery::Ping {
-                    id: b"abcdefghij0123456789",
-                }),
-            }
-            .to_bencode();
-            socket.send_to(&msg, "127.0.0.1:6881").unwrap();
-            let mut buf = [0; 512];
             socket
                 .set_read_timeout(Some(Duration::new(10, 0)))
                 .expect("Can't set timout");
-            let (number_of_bytes, src_addr) =
-                socket.recv_from(&mut buf).expect("Didn't receive data");
-            let filled_buf = &mut buf[..number_of_bytes];
-            println!("{:x?}", filled_buf);
-            println!(
-                "{:?}",
-                messages::bencode::Bencode { buffer: filled_buf }.as_dict()
-            );
-            println!(
-                "Retrieved {:?} from {:?}",
-                KRPCMessage::from_bencode(filled_buf),
-                src_addr
-            );
+            ping(&socket, "127.0.0.1:6881");
+            get_peers(&socket, "127.0.0.1:6881");
+
         }
         Err(e) => {
             println!("Failed to connect {}", e);
