@@ -25,9 +25,28 @@ pub enum KRPCQuery<'a> {
     },
 }
 
+// #[derive(Debug)]
+// struct NodeInfo<'a> {
+//     id: &'a [u8; 20],
+//     ip: &'a [u8; 4],
+//     port: &'a [u8; 2]
+// }
+
 #[derive(Debug, PartialEq)]
 pub enum KRPCResponse<'a> {
-    Ping { id: &'a [u8; 20] },
+    Ping {
+        id: &'a [u8; 20],
+    },
+    FindNode {
+        id: &'a [u8; 20],
+        // TODO: NodeInfo should go here. spec is ambiguious though, using str for now.
+        nodes: &'a [u8],
+    },
+    GetPeers {
+        id: &'a [u8; 20],
+        token: &'a [u8],
+        // TODO: Values vs NodeInfo to go here
+    },
 }
 
 #[derive(Debug, PartialEq)]
@@ -91,7 +110,25 @@ impl<'a> ToBencode for KRPCMessage<'a> {
                 }
             },
             KRPCMessageDetails::Response(q) => match q {
-                _ => (),
+                KRPCResponse::Ping { id } => {
+                    vec1.extend(b"1:rd2:id20:");
+                    vec1.extend(*id);
+                    vec1.extend(b"e");
+                }
+                KRPCResponse::GetPeers { id, token } => {
+                    vec1.extend(b"1:rd2:id20:");
+                    vec1.extend(*id);
+                    vec1.extend(format!("5:token{}:", token.len()).bytes());
+                    vec1.extend(*token);
+                    vec1.extend(b"e");
+                }
+                KRPCResponse::FindNode { id, nodes } => {
+                    vec1.extend(b"1:rd2:id20:");
+                    vec1.extend(*id);
+                    vec1.extend(format!("5:nodes{}:", nodes.len()).bytes());
+                    vec1.extend(*nodes);
+                    vec1.extend(b"e");
+                }
             },
         };
 
@@ -142,6 +179,8 @@ impl<'a> FromBencode<'a> for KRPCMessage<'a> {
         let mut other_id: Option<&[u8; 20]> = None;
         let mut info_hash: Option<&[u8; 20]> = None;
         let mut target: Option<&[u8; 20]> = None;
+        let mut token: Option<&[u8]> = None;
+        let mut nodes: Option<&[u8]> = None;
 
         let mut error_details: Option<KRPCError> = None;
         let top_level = Bencode { buffer: serialised }.as_dict()?;
@@ -195,6 +234,14 @@ impl<'a> FromBencode<'a> for KRPCMessage<'a> {
                             match qdkv.key {
                                 b"id" => match qdkv.value {
                                     Value::String(id) => other_id = to_20_bytes(id),
+                                    _ => return Err(DecodingError::RequiredFieldOfWrongType),
+                                },
+                                b"token" => match qdkv.value {
+                                    Value::String(t) => token = Some(t),
+                                    _ => return Err(DecodingError::RequiredFieldOfWrongType),
+                                },
+                                b"nodes" => match qdkv.value {
+                                    Value::String(n) => nodes = Some(n),
                                     _ => return Err(DecodingError::RequiredFieldOfWrongType),
                                 },
                                 _ => (),
@@ -251,9 +298,26 @@ impl<'a> FromBencode<'a> for KRPCMessage<'a> {
                     },
                     _ => return Err(DecodingError::MissingRequiredField),
                 }),
-                MessageType::Response => KRPCMessageDetails::Response(KRPCResponse::Ping {
-                    id: other_id.ok_or(DecodingError::MissingRequiredField)?,
-                }),
+                MessageType::Response => {
+                    // We have no way of explicitly knowing what we should be
+                    // deserialising to. Infer from fields
+                    let response = if let Some(unwrapped_token) = token {
+                        KRPCResponse::GetPeers {
+                            id: other_id.ok_or(DecodingError::MissingRequiredField)?,
+                            token: unwrapped_token,
+                        }
+                    } else if let Some(unwrapped_nodes) = nodes {
+                        KRPCResponse::FindNode {
+                            id: other_id.ok_or(DecodingError::MissingRequiredField)?,
+                            nodes: unwrapped_nodes,
+                        }
+                    } else if let Some(unwrapped_id) = other_id {
+                        KRPCResponse::Ping { id: unwrapped_id }
+                    } else {
+                        return Err(DecodingError::MissingRequiredField);
+                    };
+                    KRPCMessageDetails::Response(response)
+                }
                 _ => return Err(DecodingError::MissingRequiredField),
             },
         })
@@ -298,59 +362,117 @@ mod tests {
         );
 
         // Error examples from spec
-        let krpc_error_1 = KRPCMessage {
+        let error_1 = KRPCMessage {
             transaction_id: b"aa",
             message: KRPCMessageDetails::Error(KRPCError::GenericError(
                 "A Generic Error Ocurred".to_string(),
             )),
         };
-        let krpc_error_1_encoded = b"d1:eli201e23:A Generic Error Ocurrede1:t2:aa1:y1:ee";
-        let krpc_error_1_decoded = KRPCMessage::from_bencode(krpc_error_1_encoded);
-        assert_eq!(krpc_error_1.to_bencode(), krpc_error_1_encoded.to_vec());
-        assert_eq!(krpc_error_1_decoded, Ok(krpc_error_1));
+        let error_1_encoded = b"d1:eli201e23:A Generic Error Ocurrede1:t2:aa1:y1:ee";
+        let error_1_decoded = KRPCMessage::from_bencode(error_1_encoded);
+        assert_eq!(error_1.to_bencode(), error_1_encoded.to_vec());
+        assert_eq!(error_1_decoded, Ok(error_1));
 
         // Ping example from spec
-        let krpc_ping_1 = KRPCMessage {
+        let ping_query = KRPCMessage {
             transaction_id: b"aa",
             message: KRPCMessageDetails::Query(KRPCQuery::Ping {
                 id: b"abcdefghij0123456789",
             }),
         };
-        let krpc_ping_1_encoded = b"d1:ad2:id20:abcdefghij0123456789e1:q4:ping1:t2:aa1:y1:qe";
-        let krpc_ping_1_decoded = KRPCMessage::from_bencode(krpc_ping_1_encoded);
-        assert_eq!(krpc_ping_1.to_bencode(), krpc_ping_1_encoded.to_vec());
-        assert_eq!(krpc_ping_1_decoded, Ok(krpc_ping_1));
+        let ping_query_encoded = b"d1:ad2:id20:abcdefghij0123456789e1:q4:ping1:t2:aa1:y1:qe";
+        let ping_query_decoded = KRPCMessage::from_bencode(ping_query_encoded);
+        assert_eq!(ping_query.to_bencode(), ping_query_encoded.to_vec());
+        assert_eq!(ping_query_decoded, Ok(ping_query));
 
         // Get Peers from spec
-        let krpc_get_peers_1 = KRPCMessage {
+        let get_peers_query = KRPCMessage {
             transaction_id: b"aa",
             message: KRPCMessageDetails::Query(KRPCQuery::GetPeers {
                 id: b"abcdefghij0123456789",
                 info_hash: b"mnopqrstuvwxyz123456",
             }),
         };
-        let krpc_get_peers_1_encoded = b"d1:ad2:id20:abcdefghij01234567899:info_hash20:mnopqrstuvwxyz123456e1:q9:get_peers1:t2:aa1:y1:qe";
-        let krpc_get_peers_1_decoded = KRPCMessage::from_bencode(krpc_get_peers_1_encoded);
+        let get_peers_query_encoded = b"d1:ad2:id20:abcdefghij01234567899:info_hash20:mnopqrstuvwxyz123456e1:q9:get_peers1:t2:aa1:y1:qe";
+        let get_peers_query_decoded = KRPCMessage::from_bencode(get_peers_query_encoded);
         assert_eq!(
-            krpc_get_peers_1.to_bencode(),
-            krpc_get_peers_1_encoded.to_vec()
+            get_peers_query.to_bencode(),
+            get_peers_query_encoded.to_vec()
         );
-        assert_eq!(krpc_get_peers_1_decoded, Ok(krpc_get_peers_1));
+        assert_eq!(get_peers_query_decoded, Ok(get_peers_query));
+
+        let get_peers_response_peers = KRPCMessage {
+            transaction_id: b"aa",
+            message: KRPCMessageDetails::Response(KRPCResponse::GetPeers {
+                id: b"abcdefghij0123456789",
+                token: b"aoeusnth",
+            }),
+        };
+        // d1:rd2:id20:abcdefghij01234567895:token8:aoeusnth6:valuesl6:axje.u6:idhtnmee1:t2:aa1:y1:re
+        let get_peers_response_peers_encoded =
+            b"d1:rd2:id20:abcdefghij01234567895:token8:aoeusnthe1:t2:aa1:y1:re";
+        let get_peers_response_peers_decoded =
+            KRPCMessage::from_bencode(get_peers_response_peers_encoded);
+        assert_eq!(
+            get_peers_response_peers.to_bencode(),
+            get_peers_response_peers_encoded.to_vec()
+        );
+        assert_eq!(
+            get_peers_response_peers_decoded,
+            Ok(get_peers_response_peers)
+        );
+
+        // d1:rd2:id20:abcdefghij01234567895:nodes9:def456...5:token8:aoeusnthe1:t2:aa1:y1:re
+        let get_peers_response_nodes = KRPCMessage {
+            transaction_id: b"aa",
+            message: KRPCMessageDetails::Response(KRPCResponse::GetPeers {
+                id: b"abcdefghij0123456789",
+                token: b"aoeusnth",
+            }),
+        };
+        let get_peers_response_nodes_encoded =
+            b"d1:rd2:id20:abcdefghij01234567895:token8:aoeusnthe1:t2:aa1:y1:re";
+        let get_peers_response_nodes_decoded =
+            KRPCMessage::from_bencode(get_peers_response_nodes_encoded);
+        assert_eq!(
+            get_peers_response_nodes.to_bencode(),
+            get_peers_response_nodes_encoded.to_vec()
+        );
+        assert_eq!(
+            get_peers_response_nodes_decoded,
+            Ok(get_peers_response_nodes)
+        );
 
         // Find Node from spec
-        let krpc_find_node_1 = KRPCMessage {
+        let find_node_query = KRPCMessage {
             transaction_id: b"aa",
             message: KRPCMessageDetails::Query(KRPCQuery::FindNode {
                 id: b"abcdefghij0123456789",
                 target: b"mnopqrstuvwxyz123456",
             }),
         };
-        let krpc_find_node_1_encoded = b"d1:ad2:id20:abcdefghij01234567896:target20:mnopqrstuvwxyz123456e1:q9:find_node1:t2:aa1:y1:qe";
-        let krpc_find_node_1_decoded = KRPCMessage::from_bencode(krpc_find_node_1_encoded);
+        let find_node_query_encoded = b"d1:ad2:id20:abcdefghij01234567896:target20:mnopqrstuvwxyz123456e1:q9:find_node1:t2:aa1:y1:qe";
+        let find_node_query_decoded = KRPCMessage::from_bencode(find_node_query_encoded);
         assert_eq!(
-            krpc_find_node_1.to_bencode(),
-            krpc_find_node_1_encoded.to_vec()
+            find_node_query.to_bencode(),
+            find_node_query_encoded.to_vec()
         );
-        assert_eq!(krpc_find_node_1_decoded, Ok(krpc_find_node_1));
+        assert_eq!(find_node_query_decoded, Ok(find_node_query));
+
+        let find_node_response = KRPCMessage {
+            transaction_id: b"aa",
+            message: KRPCMessageDetails::Response(KRPCResponse::FindNode {
+                id: b"0123456789abcdefghij",
+                nodes: b"def456...",
+            }),
+        };
+        let find_node_response_encoded =
+            b"d1:rd2:id20:0123456789abcdefghij5:nodes9:def456...e1:t2:aa1:y1:re";
+        let find_node_response_decoded = KRPCMessage::from_bencode(find_node_response_encoded);
+        assert_eq!(
+            find_node_response.to_bencode(),
+            find_node_response_encoded.to_vec()
+        );
+        assert_eq!(find_node_response_decoded, Ok(find_node_response));
     }
 }
