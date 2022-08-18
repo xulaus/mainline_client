@@ -1,4 +1,3 @@
-#![feature(const_generics)]
 #![feature(cow_is_borrowed)]
 
 mod magnet;
