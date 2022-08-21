@@ -99,11 +99,9 @@ pub fn bytes_from_base32<const LEN: usize>(enc: &str) -> Result<[u8; LEN], Encod
             return Err(InvalidHashCharacter);
         }
     }
-    for i in first_pad..enc.len() {
-        // != '='
-        if bytes[i] != 0x3D {
-            return Err(InvalidHashCharacter);
-        }
+    if !bytes[first_pad..].iter().all(|&b| b == 0x3D) {
+        // there was a non padding character
+        return Err(InvalidHashCharacter);
     }
 
     Ok(out)
@@ -140,7 +138,7 @@ mod tests {
 
         // Invalid 1 char code
         let invalid1 = bytes_from_base32::<1>("Ab======");
-        assert_eq!(invalid1.err(), Some(InvalidHashCharacter));
+        assert_eq!(invalid1, Err(InvalidHashCharacter));
 
         // 2 bytes (Must read more than one byte sucessfully)
         let ac2 = bytes_from_base32::<2>("abCQ====");
@@ -148,37 +146,45 @@ mod tests {
 
         // Invalid 2 char code
         let invalid2 = bytes_from_base32::<1>("ABC1====");
-        assert_eq!(invalid2.err(), Some(InvalidHashCharacter));
+        assert_eq!(invalid2, Err(InvalidHashCharacter));
 
-        // 5 bytes (Must read full chunk sucessfullt)
-
-        let ac3 = bytes_from_base32::<5>("77777777");
-        assert_eq!(Ok([0xFF, 0xFF, 0xFF, 0xFF, 0xFF]), ac3);
-        let ac4 = bytes_from_base32::<5>("GLASda73");
-        assert_eq!(Ok([0x32, 0xc1, 0x21, 0x83, 0xfb]), ac4);
+        // 5 bytes (Must read full chunk sucessfully)
+        let full_chunk = bytes_from_base32::<5>("77777777");
+        assert_eq!(Ok([0xFF, 0xFF, 0xFF, 0xFF, 0xFF]), full_chunk);
+        let full_chunk = bytes_from_base32::<5>("GLASda73");
+        assert_eq!(Ok([0x32, 0xc1, 0x21, 0x83, 0xfb]), full_chunk);
 
         // 6 bytes (Must read over one full chunks sucessfully)
-        let ac5 = bytes_from_base32::<6>("GL3Sda7y2A======");
-        assert_eq!(Ok([0x32, 0xf7, 0x21, 0x83, 0xf8, 0xd0]), ac5);
+        let two_chunks = bytes_from_base32::<6>("GL3Sda7y2A======");
+        assert_eq!(Ok([0x32, 0xf7, 0x21, 0x83, 0xf8, 0xd0]), two_chunks);
 
         // 11 bytes (Must read over two full chunks sucessfully)
-        let ac5 = bytes_from_base32::<11>("77777777GL3Sda7y2A======");
+        let three_chunks = bytes_from_base32::<11>("77777777GL3Sda7y2A======");
         assert_eq!(
             Ok([0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x32, 0xf7, 0x21, 0x83, 0xf8, 0xd0]),
-            ac5
+            three_chunks
         );
 
+        // Error Conditions
         // Length is too Short
-        let short1 = bytes_from_base32::<2>("ABC3===");
-        assert_eq!(short1.err(), Some(InvalidHashLength));
-        let short2 = bytes_from_base32::<6>("ABC7===========");
-        assert_eq!(short2.err(), Some(InvalidHashLength));
+        let short = bytes_from_base32::<2>("ABC3===");
+        assert_eq!(short, Err(InvalidHashLength));
+        let short = bytes_from_base32::<6>("ABC7===========");
+        assert_eq!(short, Err(InvalidHashLength));
 
         // Length is too long
-        let long1 = bytes_from_base32::<2>("ABC3=====");
-        assert_eq!(long1.err(), Some(InvalidHashLength));
-        let long2 = bytes_from_base32::<6>("ABC3=============");
-        assert_eq!(long2.err(), Some(InvalidHashLength));
+        let long = bytes_from_base32::<2>("ABC3=====");
+        assert_eq!(long, Err(InvalidHashLength));
+        let long = bytes_from_base32::<6>("ABC3=============");
+        assert_eq!(long, Err(InvalidHashLength));
+
+        // More data after padding begins
+        let good_pad = bytes_from_base32::<3>("77776===");
+        assert_eq!(good_pad, Ok([255, 255, 255]));
+        let bad_pad = bytes_from_base32::<3>("77777===");
+        assert_eq!(bad_pad, Err(InvalidHashCharacter));
+        let bad_pad = bytes_from_base32::<3>("77776=1=");
+        assert_eq!(bad_pad, Err(InvalidHashCharacter));
     }
 
     #[test]
