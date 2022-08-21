@@ -1,5 +1,3 @@
-use std::mem;
-
 #[derive(Debug, PartialEq)]
 pub enum EncodingError {
     InvalidHashCharacter,
@@ -34,8 +32,11 @@ pub fn bytes_from_hex<const LEN: usize>(hex: &str) -> Result<[u8; LEN], Encoding
         return Err(InvalidHashLength);
     }
 
-    let b = hex.as_bytes().chunks(2).map(|val| hex_to_byte(val[0], val[1])).collect::<Result<Vec<u8>, _>>()?;
-    Ok(b.try_into().unwrap())
+    let mut bytes: [u8; LEN] = [0; LEN];
+    for (i, val) in hex.as_bytes().chunks(2).enumerate() {
+        bytes[i] = hex_to_byte(val[0], val[1])?
+    }
+    Ok(bytes)
 }
 
 #[inline]
@@ -63,14 +64,7 @@ pub fn bytes_from_base32<const LEN: usize>(enc: &str) -> Result<[u8; LEN], Encod
         return Err(InvalidHashLength);
     }
 
-    let mut out: [u8; LEN] = unsafe {
-        let mut out_unsafe: mem::MaybeUninit<[u8; LEN]> = mem::MaybeUninit::uninit();
-        for i in 0..LEN {
-            (*out_unsafe.as_mut_ptr())[i] = 0;
-        }
-        out_unsafe.assume_init()
-    };
-
+    let mut out: [u8; LEN] = [0; LEN];
     let bytes = enc.as_bytes();
     let first_pad: usize = (LEN * 8 + 4) / 5;
     let last_byte_start: usize = ((LEN - 1) * 8 + 4) / 5; // first charicter fully inside last byte
@@ -117,7 +111,6 @@ pub fn bytes_from_base32<const LEN: usize>(enc: &str) -> Result<[u8; LEN], Encod
 
 mod tests {
     use super::*;
-    use EncodingError::*;
 
     #[test]
     fn test_bytes_from_hex() {
