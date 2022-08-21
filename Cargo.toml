@@ -3,3 +3,7 @@ name = "mainline_client"
 version = "0.0.1"
 authors = ["Richard Fitzgerald"]
 edition = "2021"
+
+[dependencies]
+crc32c = "0.6.3"
+getrandom = "0.2.7"

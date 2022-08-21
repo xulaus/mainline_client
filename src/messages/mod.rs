@@ -35,14 +35,17 @@ pub enum KRPCQuery<'a> {
 #[derive(Debug, PartialEq)]
 pub enum KRPCResponse<'a> {
     Ping {
+        ip: Option<Ip<'a>>,
         id: &'a [u8; 20],
     },
     FindNode {
+        ip: Option<Ip<'a>>,
         id: &'a [u8; 20],
         // TODO: NodeInfo should go here. spec is ambiguious though, using str for now.
         nodes: &'a [u8],
     },
     GetPeers {
+        ip: Option<Ip<'a>>,
         id: &'a [u8; 20],
         token: &'a [u8],
         // TODO: Values vs NodeInfo to go here
@@ -54,6 +57,14 @@ pub enum KRPCMessageDetails<'a> {
     Error(KRPCError),
     Query(KRPCQuery<'a>),
     Response(KRPCResponse<'a>),
+}
+
+#[derive(Debug, PartialEq)]
+pub enum Ip<'a> {
+    V4 {
+        addr: &'a [u8; 4],
+        port: &'a [u8; 2],
+    },
 }
 
 #[derive(Debug, PartialEq)]
@@ -110,19 +121,19 @@ impl<'a> ToBencode for KRPCMessage<'a> {
                 }
             },
             KRPCMessageDetails::Response(q) => match q {
-                KRPCResponse::Ping { id } => {
+                KRPCResponse::Ping { id, .. } => {
                     vec1.extend(b"1:rd2:id20:");
                     vec1.extend(*id);
                     vec1.extend(b"e");
                 }
-                KRPCResponse::GetPeers { id, token } => {
+                KRPCResponse::GetPeers { id, token, .. } => {
                     vec1.extend(b"1:rd2:id20:");
                     vec1.extend(*id);
                     vec1.extend(format!("5:token{}:", token.len()).bytes());
                     vec1.extend(*token);
                     vec1.extend(b"e");
                 }
-                KRPCResponse::FindNode { id, nodes } => {
+                KRPCResponse::FindNode { id, nodes, .. } => {
                     vec1.extend(b"1:rd2:id20:");
                     vec1.extend(*id);
                     vec1.extend(format!("5:nodes{}:", nodes.len()).bytes());
@@ -148,8 +159,8 @@ impl<'a> ToBencode for KRPCMessage<'a> {
     }
 }
 
-fn to_20_bytes<'a>(i: &'a [u8]) -> Option<&'a [u8; 20]> {
-    if i.len() == 20 {
+fn to_fixed<'a, const N: usize>(i: &'a [u8]) -> Option<&'a [u8; N]> {
+    if i.len() == N {
         Some(unsafe { ::std::mem::transmute(i.as_ptr()) })
     } else {
         None
@@ -170,9 +181,10 @@ impl<'a> FromBencode<'a> for KRPCMessage<'a> {
             Ping,
             FindNode,
             GetPeers,
-            AnnouncePeer,
+            // AnnouncePeer,
             Unknown,
-        };
+        }
+
         let mut transaction_id: Option<&[u8]> = None;
         let mut message_type = MessageType::Unknown;
         let mut query_type = QueryType::Unknown;
@@ -181,12 +193,17 @@ impl<'a> FromBencode<'a> for KRPCMessage<'a> {
         let mut target: Option<&[u8; 20]> = None;
         let mut token: Option<&[u8]> = None;
         let mut nodes: Option<&[u8]> = None;
+        let mut ip: Option<&[u8; 6]> = None;
 
         let mut error_details: Option<KRPCError> = None;
         let top_level = Bencode { buffer: serialised }.as_dict()?;
 
         for kv in top_level {
             match kv.key {
+                b"ip" => match kv.value {
+                    Value::String(v) => ip = to_fixed::<6>(v),
+                    _ => return Err(DecodingError::RequiredFieldOfWrongType),
+                },
                 b"t" => match kv.value {
                     Value::String(v) => transaction_id = Some(v),
                     _ => return Err(DecodingError::RequiredFieldOfWrongType),
@@ -233,7 +250,7 @@ impl<'a> FromBencode<'a> for KRPCMessage<'a> {
                         for qdkv in mid {
                             match qdkv.key {
                                 b"id" => match qdkv.value {
-                                    Value::String(id) => other_id = to_20_bytes(id),
+                                    Value::String(id) => other_id = to_fixed::<20>(id),
                                     _ => return Err(DecodingError::RequiredFieldOfWrongType),
                                 },
                                 b"token" => match qdkv.value {
@@ -255,15 +272,15 @@ impl<'a> FromBencode<'a> for KRPCMessage<'a> {
                         for qdkv in mid {
                             match qdkv.key {
                                 b"id" => match qdkv.value {
-                                    Value::String(id) => other_id = to_20_bytes(id),
+                                    Value::String(id) => other_id = to_fixed::<20>(id),
                                     _ => return Err(DecodingError::RequiredFieldOfWrongType),
                                 },
                                 b"info_hash" => match qdkv.value {
-                                    Value::String(id) => info_hash = to_20_bytes(id),
+                                    Value::String(id) => info_hash = to_fixed::<20>(id),
                                     _ => return Err(DecodingError::RequiredFieldOfWrongType),
                                 },
                                 b"target" => match qdkv.value {
-                                    Value::String(id) => target = to_20_bytes(id),
+                                    Value::String(id) => target = to_fixed::<20>(id),
                                     _ => return Err(DecodingError::RequiredFieldOfWrongType),
                                 },
                                 _ => (),
@@ -275,6 +292,17 @@ impl<'a> FromBencode<'a> for KRPCMessage<'a> {
                 _ => (),
             }
         }
+
+        let ip = {
+            if let Some(bytes) = ip {
+                Some(Ip::V4 {
+                    addr: to_fixed::<4>(&bytes[0..4]).unwrap(),
+                    port: to_fixed::<2>(&bytes[4..]).unwrap(),
+                })
+            } else {
+                None
+            }
+        };
 
         Ok(KRPCMessage {
             transaction_id: transaction_id
@@ -303,16 +331,21 @@ impl<'a> FromBencode<'a> for KRPCMessage<'a> {
                     // deserialising to. Infer from fields
                     let response = if let Some(unwrapped_token) = token {
                         KRPCResponse::GetPeers {
+                            ip,
                             id: other_id.ok_or(DecodingError::MissingRequiredField)?,
                             token: unwrapped_token,
                         }
                     } else if let Some(unwrapped_nodes) = nodes {
                         KRPCResponse::FindNode {
+                            ip,
                             id: other_id.ok_or(DecodingError::MissingRequiredField)?,
                             nodes: unwrapped_nodes,
                         }
                     } else if let Some(unwrapped_id) = other_id {
-                        KRPCResponse::Ping { id: unwrapped_id }
+                        KRPCResponse::Ping {
+                            ip,
+                            id: unwrapped_id,
+                        }
                     } else {
                         return Err(DecodingError::MissingRequiredField);
                     };
@@ -406,6 +439,7 @@ mod tests {
             message: KRPCMessageDetails::Response(KRPCResponse::GetPeers {
                 id: b"abcdefghij0123456789",
                 token: b"aoeusnth",
+                ip: None,
             }),
         };
         // d1:rd2:id20:abcdefghij01234567895:token8:aoeusnth6:valuesl6:axje.u6:idhtnmee1:t2:aa1:y1:re
@@ -428,6 +462,7 @@ mod tests {
             message: KRPCMessageDetails::Response(KRPCResponse::GetPeers {
                 id: b"abcdefghij0123456789",
                 token: b"aoeusnth",
+                ip: None,
             }),
         };
         let get_peers_response_nodes_encoded =
@@ -464,6 +499,7 @@ mod tests {
             message: KRPCMessageDetails::Response(KRPCResponse::FindNode {
                 id: b"0123456789abcdefghij",
                 nodes: b"def456...",
+                ip: None,
             }),
         };
         let find_node_response_encoded =

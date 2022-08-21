@@ -198,7 +198,7 @@ impl<'a> fmt::Debug for Value<'a> {
                 if let Ok(s) = std::str::from_utf8(bytes) {
                     s.fmt(f)
                 } else {
-                    write!(f, "{:x?}", bytes)
+                    write!(f, "{:?}", bytes)
                 }
             }
             Self::Dict(d) => d.fmt(f),
