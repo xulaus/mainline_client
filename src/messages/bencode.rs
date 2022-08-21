@@ -183,7 +183,6 @@ impl<'a> Bencode<'a> {
     }
 }
 
-#[derive(Debug)]
 pub enum Value<'a> {
     String(&'a [u8]),
     Dict(Dict<'a>),
@@ -191,6 +190,22 @@ pub enum Value<'a> {
     Integer(i64),
 }
 
+impl<'a> fmt::Debug for Value<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Integer(x) => write!(f, "{}", x),
+            Self::String(bytes) => {
+                if let Ok(s) = std::str::from_utf8(bytes) {
+                    s.fmt(f)
+                } else {
+                    write!(f, "{:x?}", bytes)
+                }
+            }
+            Self::Dict(d) => d.fmt(f),
+            Self::List(l) => l.fmt(f),
+        }
+    }
+}
 #[derive(Debug)]
 pub struct DictKVPair<'a> {
     pub key: &'a [u8],
@@ -210,7 +225,7 @@ impl<'a> fmt::Debug for Dict<'a> {
         };
         let mut builder = f.debug_struct("");
         for kv in copy {
-            let key = format!("{:x?}", kv.key);
+            let key = format!("{:?}", Value::String(kv.key));
             builder.field(&key, &kv.value);
         }
         builder.finish()
