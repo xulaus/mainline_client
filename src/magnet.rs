@@ -190,33 +190,25 @@ pub fn parse(s: &str) -> Result<MagnetFiles, MagnetURIError> {
 mod tests {
     use super::*;
     use MagnetURIError::*;
+    use test_case::test_case;
 
-    #[test]
-    fn hash_from_str() {
-        let magnet1 = MagnetHash::from_str("urn:md5:c12fe1c06bba254a9dc9f519b335aa7c");
-        assert_eq!(
-            magnet1,
-            Ok(MagnetHash::MD5([
-                193, 47, 225, 192, 107, 186, 37, 74, 157, 201, 245, 25, 179, 53, 170, 124
-            ]))
-        );
-
-        // let magnet2 = MagnetHash::from_str("urn:sha1:TXGCZQTH26NL6OUQAJJPFALHG2LTGBC7");
-        // assert_eq!(
-        //     magnet2,
-        //     Ok(MagnetHash::SHA1([
-        //         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-        //     ]))
-        // );
-
-        let magnet3 = MagnetHash::from_str("urn:btih:209c8226b299b308beaf2b9cd3fb49212dbd13ec");
-        assert_eq!(
-            magnet3,
-            Ok(MagnetHash::BTIH([
-                32, 156, 130, 38, 178, 153, 179, 8, 190, 175, 43, 156, 211, 251, 73, 33, 45, 189,
-                19, 236
-            ]))
-        );
+    #[test_case(
+        "urn:md5:c12fe1c06bba254a9dc9f519b335aa7c",
+        MagnetHash::MD5([193, 47, 225, 192, 107, 186, 37, 74, 157, 201, 245, 25, 179, 53, 170, 124]);
+        "MD5"
+    )]
+    // #[test_case(
+    //     "urn:sha1:209c8226b299b308beaf2b9cd3fb49212dbd13ec",
+    //     MagnetHash::SHA1([32, 156, 130, 38, 178, 153, 179, 8, 190, 175, 43, 156, 211, 251, 73, 33, 45, 189, 19, 236]);
+    //     "SHA1"
+    // )]
+    #[test_case(
+        "urn:btih:209c8226b299b308beaf2b9cd3fb49212dbd13ec",
+        MagnetHash::BTIH([32, 156, 130, 38, 178, 153, 179, 8, 190, 175, 43, 156, 211, 251, 73, 33, 45, 189, 19, 236]);
+        "BTIH"
+    )]
+    fn hash_from_str(s: &str, expected: MagnetHash) {
+        assert_eq!(MagnetHash::from_str(s), Ok(expected));
     }
 
     #[test]
@@ -239,19 +231,13 @@ mod tests {
         let replace_needed = uri_decode_value("%41CD").unwrap();
         assert!(replace_needed.is_owned());
         assert_eq!(replace_needed, "ACD");
+    }
 
-        assert_eq!(uri_decode_value("%%").err(), Some(InvalidUseOfReservedChar));
-        assert_eq!(
-            uri_decode_value("sad#asd").err(),
-            Some(InvalidUseOfReservedChar)
-        );
-        assert_eq!(
-            uri_decode_value("asd&asd").err(),
-            Some(InvalidUseOfReservedChar)
-        );
-        assert_eq!(
-            uri_decode_value("asd?asd").err(),
-            Some(InvalidUseOfReservedChar)
-        );
+    #[test_case("%%"; "Percent Sign")]
+    #[test_case("sad#asd"; "Hash Symbol")]
+    #[test_case("asd&asd"; "Amperstand")]
+    #[test_case("asd?asd"; "Question Mark")]
+    fn test_uri_decode_value_invalid(s: &str) {
+        assert_eq!(uri_decode_value(s), Err(InvalidUseOfReservedChar));
     }
 }

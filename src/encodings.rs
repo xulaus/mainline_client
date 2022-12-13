@@ -107,8 +107,10 @@ pub fn bytes_from_base32<const LEN: usize>(enc: &str) -> Result<[u8; LEN], Encod
     Ok(out)
 }
 
+#[cfg(test)]
 mod tests {
     use super::*;
+    use test_case::test_case;
 
     #[test]
     fn test_bytes_from_hex() {
@@ -125,38 +127,42 @@ mod tests {
     }
 
     #[test]
-    fn test_bytes_from_base32() {
-        // Basic Decode
-        let ff = bytes_from_base32::<1>("74======");
-        assert_eq!(Ok([0xFF]), ff);
-
-        // Case sensitivity
+    fn test_bytes_from_base32_case_insensitive() {
         let ac1 = bytes_from_base32::<1>("Ai======");
         let ac2 = bytes_from_base32::<1>("aI======");
         assert_eq!(ac1, ac2);
         assert_eq!(Ok([0x02]), ac2);
+    }
 
-        // Invalid 1 char code
-        let invalid1 = bytes_from_base32::<1>("Ab======");
-        assert_eq!(invalid1, Err(InvalidHashCharacter));
+    #[test_case("abCQ====", Ok([0x00, 0x45]); "Correct decoding")]
+    #[test_case("ABC3===", Err(InvalidHashLength); "Encoding too short")]
+    #[test_case("ABC3=====", Err(InvalidHashLength); "Encoding too long")]
+    fn test_2_bytes_from_base32(s: &str, expected: Result<[u8; 2],  EncodingError>) {
+        assert_eq!(bytes_from_base32::<2>(s), expected);
+    }
 
-        // 2 bytes (Must read more than one byte sucessfully)
-        let ac2 = bytes_from_base32::<2>("abCQ====");
-        assert_eq!(Ok([0x00, 0x45]), ac2);
+    #[test_case("74======", Ok([0xFF]); "Correct decoding")]
+    #[test_case("Ab======", Err(InvalidHashCharacter))]
+    #[test_case("ABC1====", Err(InvalidHashCharacter))]
+    fn test_1_bytes_from_base32(s: &str, expected: Result<[u8; 1],  EncodingError>) {
+        assert_eq!(bytes_from_base32::<1>(s), expected);
+    }
 
-        // Invalid 2 char code
-        let invalid2 = bytes_from_base32::<1>("ABC1====");
-        assert_eq!(invalid2, Err(InvalidHashCharacter));
+    #[test_case("GL3Sda7y2A======", Ok([0x32, 0xf7, 0x21, 0x83, 0xf8, 0xd0]); "Correct decoding")]
+    #[test_case("ABC7===========", Err(InvalidHashLength); "Encoding too short")]
+    #[test_case("ABC3=============", Err(InvalidHashLength); "Encoding too long")]
+    fn test_6_bytes_from_base32(s: &str, expected: Result<[u8; 6],  EncodingError>) {
+        assert_eq!(bytes_from_base32::<6>(s), expected);
+    }
 
+    #[test]
+    fn test_bytes_from_base32_misc_length() {
         // 5 bytes (Must read full chunk sucessfully)
         let full_chunk = bytes_from_base32::<5>("77777777");
         assert_eq!(Ok([0xFF, 0xFF, 0xFF, 0xFF, 0xFF]), full_chunk);
         let full_chunk = bytes_from_base32::<5>("GLASda73");
         assert_eq!(Ok([0x32, 0xc1, 0x21, 0x83, 0xfb]), full_chunk);
 
-        // 6 bytes (Must read over one full chunks sucessfully)
-        let two_chunks = bytes_from_base32::<6>("GL3Sda7y2A======");
-        assert_eq!(Ok([0x32, 0xf7, 0x21, 0x83, 0xf8, 0xd0]), two_chunks);
 
         // 11 bytes (Must read over two full chunks sucessfully)
         let three_chunks = bytes_from_base32::<11>("77777777GL3Sda7y2A======");
@@ -164,19 +170,6 @@ mod tests {
             Ok([0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x32, 0xf7, 0x21, 0x83, 0xf8, 0xd0]),
             three_chunks
         );
-
-        // Error Conditions
-        // Length is too Short
-        let short = bytes_from_base32::<2>("ABC3===");
-        assert_eq!(short, Err(InvalidHashLength));
-        let short = bytes_from_base32::<6>("ABC7===========");
-        assert_eq!(short, Err(InvalidHashLength));
-
-        // Length is too long
-        let long = bytes_from_base32::<2>("ABC3=====");
-        assert_eq!(long, Err(InvalidHashLength));
-        let long = bytes_from_base32::<6>("ABC3=============");
-        assert_eq!(long, Err(InvalidHashLength));
 
         // More data after padding begins
         let good_pad = bytes_from_base32::<3>("77776===");
@@ -187,36 +180,31 @@ mod tests {
         assert_eq!(bad_pad, Err(InvalidHashCharacter));
     }
 
-    #[test]
-    fn test_hex_to_nibble() {
-        assert_eq!(Ok(0x0), hex_to_nibble("0".as_bytes()[0]));
-        assert_eq!(Ok(0x1), hex_to_nibble("1".as_bytes()[0]));
-        assert_eq!(Ok(0x2), hex_to_nibble("2".as_bytes()[0]));
-        assert_eq!(Ok(0x3), hex_to_nibble("3".as_bytes()[0]));
-        assert_eq!(Ok(0x4), hex_to_nibble("4".as_bytes()[0]));
-        assert_eq!(Ok(0x5), hex_to_nibble("5".as_bytes()[0]));
-        assert_eq!(Ok(0x6), hex_to_nibble("6".as_bytes()[0]));
-        assert_eq!(Ok(0x8), hex_to_nibble("8".as_bytes()[0]));
-        assert_eq!(Ok(0x9), hex_to_nibble("9".as_bytes()[0]));
-        assert_eq!(Ok(0xa), hex_to_nibble("a".as_bytes()[0]));
-        assert_eq!(Ok(0xb), hex_to_nibble("b".as_bytes()[0]));
-        assert_eq!(Ok(0xc), hex_to_nibble("c".as_bytes()[0]));
-        assert_eq!(Ok(0xd), hex_to_nibble("d".as_bytes()[0]));
-        assert_eq!(Ok(0xe), hex_to_nibble("e".as_bytes()[0]));
-        assert_eq!(Ok(0xf), hex_to_nibble("f".as_bytes()[0]));
-        assert_eq!(Ok(0xA), hex_to_nibble("A".as_bytes()[0]));
-        assert_eq!(Ok(0xB), hex_to_nibble("B".as_bytes()[0]));
-        assert_eq!(Ok(0xC), hex_to_nibble("C".as_bytes()[0]));
-        assert_eq!(Ok(0xD), hex_to_nibble("D".as_bytes()[0]));
-        assert_eq!(Ok(0xE), hex_to_nibble("E".as_bytes()[0]));
-        assert_eq!(Ok(0xF), hex_to_nibble("F".as_bytes()[0]));
-        assert_eq!(
-            hex_to_nibble("G".as_bytes()[0]).err(),
-            Some(InvalidHashCharacter)
-        );
-        assert_eq!(
-            hex_to_nibble("g".as_bytes()[0]).err(),
-            Some(InvalidHashCharacter)
-        );
+
+    #[test_case(b"0", Ok(0x0); "0")]
+    #[test_case(b"1", Ok(0x1); "1")]
+    #[test_case(b"2", Ok(0x2); "2")]
+    #[test_case(b"3", Ok(0x3); "3")]
+    #[test_case(b"4", Ok(0x4); "4")]
+    #[test_case(b"5", Ok(0x5); "5")]
+    #[test_case(b"6", Ok(0x6); "6")]
+    #[test_case(b"8", Ok(0x8); "8")]
+    #[test_case(b"9", Ok(0x9); "9")]
+    #[test_case(b"a", Ok(0xa); "a lowercase")]
+    #[test_case(b"b", Ok(0xb); "b lowercase")]
+    #[test_case(b"c", Ok(0xc); "c lowercase")]
+    #[test_case(b"d", Ok(0xd); "d lowercase")]
+    #[test_case(b"e", Ok(0xe); "e lowercase")]
+    #[test_case(b"f", Ok(0xf); "f lowercase")]
+    #[test_case(b"A", Ok(0xA); "A uppercase")]
+    #[test_case(b"B", Ok(0xB); "B uppercase")]
+    #[test_case(b"C", Ok(0xC); "C uppercase")]
+    #[test_case(b"D", Ok(0xD); "D uppercase")]
+    #[test_case(b"E", Ok(0xE); "E uppercase")]
+    #[test_case(b"F", Ok(0xF); "F uppercase")]
+    #[test_case(b"g", Err(InvalidHashCharacter); "g lowercase")]
+    #[test_case(b"G", Err(InvalidHashCharacter); "G uppercase")]
+    fn test_hex_to_nibble(s: &[u8], expected: Result<u8, EncodingError>) {
+        assert_eq!(expected, hex_to_nibble(s[0]));
     }
 }

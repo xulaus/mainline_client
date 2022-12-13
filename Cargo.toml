@@ -7,3 +7,6 @@ edition = "2021"
 [dependencies]
 crc32c = "0.6.3"
 getrandom = "0.2.7"
+
+[dev-dependencies]
+test-case = "2.2.2"

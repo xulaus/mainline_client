@@ -114,29 +114,27 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use test_case::test_case;
 
-    #[test]
-    fn test_node_id() {
-        fn test_gen_matches(ip: [u8; 4], r: u8, crc: [u8; 3]) {
-            assert!(r <= 7);
-            loop {
-                let mut id = node_id(&ip);
-                id[2] &= 0xf8;
-                if (id[19] & 0x7) == r {
-                    assert_eq!(&id[0..3], crc);
-                    break;
-                }
-            }
-        }
-        // Test cases described in BEP 42
-        // To make these test faster the last 3 bits in the examples are ignored
+    // Test cases described in BEP 42
+    #[test_case([124, 31, 75, 21], 1, [0x5f, 0xbf, 0xb8])]
+    #[test_case([21, 75, 31, 124], 6, [0x5a, 0x3c, 0xe8])]
+    #[test_case([65, 23, 51, 170], 6, [0xa5, 0xd4, 0x30])]
+    #[test_case([84, 124, 73, 14], 1, [0x1b, 0x03, 0x20])]
+    #[test_case([43, 213, 53, 83], 2, [0xe5, 0x6f, 0x68])]
+    fn test_node_id(ip: [u8; 4], r: u8, crc: [u8; 3]) {
+        // To make these tests faster the last 3 bits in the examples are ignored
         // this is as we would have to iterate until 2 random numbers matched.
         // Ignoring those last bits mean we just need to iterate until rand % 7
         // matches
-        test_gen_matches([124, 31, 75, 21], 1, [0x5f, 0xbf, 0xb8]);
-        test_gen_matches([21, 75, 31, 124], 6, [0x5a, 0x3c, 0xe8]);
-        test_gen_matches([65, 23, 51, 170], 6, [0xa5, 0xd4, 0x30]);
-        test_gen_matches([84, 124, 73, 14], 1, [0x1b, 0x03, 0x20]);
-        test_gen_matches([43, 213, 53, 83], 2, [0xe5, 0x6f, 0x68]);
+        assert!(r <= 7);
+        loop {
+            let mut id = node_id(&ip);
+            id[2] &= 0xf8;
+            if (id[19] & 0x7) == r {
+                assert_eq!(&id[0..3], crc);
+                break;
+            }
+        }
     }
 }
