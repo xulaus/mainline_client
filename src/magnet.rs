@@ -2,7 +2,7 @@ use mainline_client::encodings::{hex_to_byte, bytes_from_base32, bytes_from_hex,
 
 use std::{borrow::Cow, collections::HashMap, error::Error, fmt, str::FromStr};
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum MagnetURIError {
     InvalidHashCharacter,
     InvalidHashLength,
@@ -30,7 +30,7 @@ impl Error for MagnetURIError {
 
 impl fmt::Display for MagnetURIError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.to_string())
+        write!(f, "{:?}", self)
     }
 }
 
@@ -59,7 +59,7 @@ fn uri_decode_value(value: &str) -> Result<Cow<str>, MagnetURIError> {
         Some(first_percent) => {
             let mut ret = Vec::<u8>::with_capacity(s.bytes().len());
             ret.extend(s[..first_percent].bytes());
-            for segment in s[(first_percent + 1)..].split("%") {
+            for segment in s[(first_percent + 1)..].split('%') {
                 if segment.len() < 2 {
                     return Err(InvalidUseOfReservedChar);
                 }
@@ -76,27 +76,27 @@ fn uri_decode_value(value: &str) -> Result<Cow<str>, MagnetURIError> {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum MagnetHash {
     SHA1([u8; 20]),
     MD5([u8; 16]),
     BTIH([u8; 20]),
-    INVALID,
+    Invalid,
 }
 
 impl FromStr for MagnetHash {
     type Err = MagnetURIError;
 
     fn from_str(s: &str) -> Result<MagnetHash, Self::Err> {
-        if s.starts_with("urn:sha1:") {
-            Ok(MagnetHash::SHA1(bytes_from_base32(&s[9..])?))
-        } else if s.starts_with("urn:md5:") {
-            Ok(MagnetHash::MD5(bytes_from_hex(&s[8..])?))
-        } else if s.starts_with("urn:btih:") {
-            if s.len() == 49 {
-                Ok(MagnetHash::BTIH(bytes_from_hex(&s[9..])?))
+        if let Some(stripped) = s.strip_prefix("urn:sha1:") {
+            Ok(MagnetHash::SHA1(bytes_from_base32(stripped)?))
+        } else if let Some(stripped) = s.strip_prefix("urn:md5:") {
+            Ok(MagnetHash::MD5(bytes_from_hex(stripped)?))
+        } else if let Some(stripped) = s.strip_prefix("urn:btih:") {
+            if stripped.len() == 40 {
+                Ok(MagnetHash::BTIH(bytes_from_hex(stripped)?))
             } else {
-                Ok(MagnetHash::BTIH(bytes_from_base32(&s[9..])?))
+                Ok(MagnetHash::BTIH(bytes_from_base32(stripped)?))
             }
         } else {
             Err(MagnetURIError::UnknownHashFunction)
@@ -104,7 +104,7 @@ impl FromStr for MagnetHash {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct MagnetFile {
     hash: MagnetHash,
     display_name: String,
@@ -113,13 +113,13 @@ pub struct MagnetFile {
 impl Default for MagnetFile {
     fn default() -> Self {
         MagnetFile {
-            hash: MagnetHash::INVALID,
+            hash: MagnetHash::Invalid,
             display_name: "".to_string(),
         }
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct MagnetFiles {
     files: Vec<MagnetFile>,
 }
@@ -130,60 +130,32 @@ impl FromStr for MagnetFiles {
     fn from_str(s: &str) -> Result<MagnetFiles, Self::Err> {
         use MagnetURIError::*;
 
-        if !s.starts_with("magnet:") {
-            return Err(InvalidURIScheme);
-        }
-        if !s[7..].starts_with("?") {
-            return Err(InvalidStartCharacter);
-        }
-
-        let mut files: HashMap<&str, MagnetFile> = HashMap::new();
-        for serialised_pair in s[8..].split("&") {
-            match serialised_pair.find("=") {
-                Some(split_at) => {
-                    let key = &serialised_pair[0..split_at];
-                    let value = uri_decode_value(&serialised_pair[(split_at + 1)..])?;
-
-                    if key == "xt" || key.starts_with("xt.") {
-                        let file_key = if key.len() < 3 { &"1" } else { &key[3..] };
-                        let hash = MagnetHash::from_str(&value)?;
-                        match files.get_mut(file_key) {
-                            Some(file) => {
-                                file.hash = hash;
-                            }
-                            None => {
-                                let mut file: MagnetFile = Default::default();
-                                file.hash = hash;
-                                files.insert(file_key, file);
-                            }
-                        };
-                    } else if key == "dn" || key.starts_with("dn.") {
-                        let file_key = if key.len() < 3 { &"1" } else { &key[3..] };
-                        match files.get_mut(file_key) {
-                            Some(file) => {
-                                file.display_name = (*value).to_string();
-                            }
-                            None => {
-                                let mut file: MagnetFile = Default::default();
-                                file.display_name = (*value).to_string();
-                            }
-                        };
+        if let Some(data) = s.strip_prefix("magnet:?") {
+            let mut files: HashMap<&str, MagnetFile> = HashMap::new();
+            for serialised_pair in data.split('&') {
+                if let Some((key, encoded_value)) = serialised_pair.split_once('=') {
+                    let value = uri_decode_value(encoded_value)?;
+                    if key.starts_with("xt") {
+                        let file_key = key.strip_prefix("xt.").unwrap_or("1");
+                        files.entry(file_key).or_default().hash = MagnetHash::from_str(&value)?;
+                    } else if key.starts_with("dn") {
+                        let file_key = key.strip_prefix("dn.").unwrap_or("1");
+                        files.entry(file_key).or_default().display_name = (*value).to_string();
                     }
-                }
-                None => {
-                    // TODO: log warning
-                }
-            };
+                } else {
+                    todo!("need to log a warning here")
+                };
+            }
+
+            Ok(MagnetFiles {
+                files: files.into_iter().map(|kv_pair| kv_pair.1).collect(),
+            })
+        } else if !s.starts_with("magnet:") {
+            Err(InvalidURIScheme)
+        } else {
+            Err(InvalidStartCharacter)
         }
-
-        Ok(MagnetFiles {
-            files: files.into_iter().map(|kv_pair| kv_pair.1).collect(),
-        })
     }
-}
-
-pub fn parse(s: &str) -> Result<MagnetFiles, MagnetURIError> {
-    MagnetFiles::from_str(s)
 }
 
 #[cfg(test)]
@@ -216,7 +188,15 @@ mod tests {
         let magnet1 =
             MagnetFiles::from_str("magnet:?xt=urn:md5:c12fe1c06bba254a9dc9f519b335aa7c1367a88a");
         let magnet2 = MagnetFiles::from_str(
-            "magnet:?xt=urn%3amd5%3Ac12fe1c06bba254a9dc9f519b335aa7c1367a88a",
+            "magnet:?xt=urn%3Amd5%3Ac12fe1c06bba254a9dc9f519b335aa7c1367a88a",
+        );
+
+        assert_eq!(magnet1, magnet2); // Errors
+
+        let magnet1 =
+            MagnetFiles::from_str("magnet:?xt.abc=urn:md5:c12fe1c06bba254a9dc9f519b335aa7c");
+        let magnet2 = MagnetFiles::from_str(
+            "magnet:?xt.abc=urn%3amd5%3Ac12fe1c06bba254a9dc9f519b335aa7c",
         );
 
         assert_eq!(magnet1, magnet2);

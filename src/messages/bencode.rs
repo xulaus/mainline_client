@@ -1,7 +1,7 @@
 use std::str::from_utf8;
 use std::{error::Error, fmt};
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum DecodingError {
     UnknownError,
     MissingRequiredField,
@@ -27,7 +27,7 @@ impl Error for DecodingError {
 }
 impl fmt::Display for DecodingError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.to_string())
+        write!(f, "{:?}", self)
     }
 }
 
@@ -45,7 +45,7 @@ pub struct Bencode<'a> {
 
 impl<'a> Bencode<'a> {
     pub fn len(&self) -> usize {
-        return self.buffer.len();
+        self.buffer.len()
     }
 
     pub fn as_dict(&self) -> Result<Dict<'a>, DecodingError> {
@@ -61,7 +61,7 @@ impl<'a> Bencode<'a> {
         // TODO: Should be errors
         assert!(self.buffer.len() >= 3);
         assert_eq!(self.peek(), Some('i'));
-        let mut tokens = self.buffer.splitn(2, |x| *x == 'e' as u8);
+        let mut tokens = self.buffer.splitn(2, |x| *x == b'e');
         let int = tokens.next().ok_or(DecodingError::UnexpectedEOF)?;
         let rest_of_buffer = tokens.next().ok_or(DecodingError::UnexpectedEOF)?;
         Ok((
@@ -127,7 +127,7 @@ impl<'a> Bencode<'a> {
     }
 
     pub fn eat_str(&self) -> Result<(&'a [u8], Bencode<'a>), DecodingError> {
-        let mut tokens = self.buffer.splitn(2, |x| *x == ':' as u8);
+        let mut tokens = self.buffer.splitn(2, |x| *x == b':');
         let key_len = tokens.next().ok_or(DecodingError::UnexpectedEOF)?;
         let rest_of_key = tokens.next().ok_or(DecodingError::UnexpectedEOF)?;
         let len_string = from_utf8(key_len)

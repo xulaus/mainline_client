@@ -1,4 +1,4 @@
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum EncodingError {
     InvalidHashCharacter,
     InvalidHashLength
@@ -7,19 +7,12 @@ use EncodingError::*;
 
 #[inline]
 fn hex_to_nibble(h: u8) -> Result<u8, EncodingError> {
-    // Decode Numbers
-    if h >= 0x30 && h <= 0x39 {
-        return Ok(h - 0x30);
+    match h {
+        (0x30..=0x39) => Ok(h - 0x30), // Decode Numbers
+        (0x61..=0x66) => Ok(h - 0x61 + 10), // Decode lower case
+        (0x41..=0x46) => Ok(h - 0x41 + 10), // Decode upper case
+        _ => Err(InvalidHashCharacter)
     }
-    // Decode lower case
-    if h >= 0x61 && h <= 0x66 {
-        return Ok(h - 0x61 + 10);
-    }
-    // Decode upper case
-    if h >= 0x41 && h <= 0x46 {
-        return Ok(h - 0x41 + 10);
-    }
-    return Err(InvalidHashCharacter);
 }
 
 #[inline]
@@ -42,20 +35,12 @@ pub fn bytes_from_hex<const LEN: usize>(hex: &str) -> Result<[u8; LEN], Encoding
 #[inline]
 fn base32_decode_char(h: u8) -> Result<u8, EncodingError> {
     // RFC 4648 base 32
-
-    // Decode lower case
-    if h >= 0x61 && h <= 0x87 {
-        return Ok(h - 0x61);
+    match h {
+        (0x61..=0x87) => Ok(h - 0x61), // Decode lower case
+        (0x41..=0x67) => Ok(h - 0x41),  // Decode upper case
+        (0x32..=0x37) => Ok(h - 0x32 + 26), // Decode Numbers from 2 to 7
+        _ => Err(InvalidHashCharacter)
     }
-    // Decode upper case
-    if h >= 0x41 && h <= 0x67 {
-        return Ok(h - 0x41);
-    }
-    // Decode Numbers from 2 to 7
-    if h >= 0x32 && h <= 0x37 {
-        return Ok(h - 0x32 + 26);
-    }
-    return Err(InvalidHashCharacter);
 }
 
 pub fn bytes_from_base32<const LEN: usize>(enc: &str) -> Result<[u8; LEN], EncodingError> {
@@ -99,12 +84,13 @@ pub fn bytes_from_base32<const LEN: usize>(enc: &str) -> Result<[u8; LEN], Encod
             return Err(InvalidHashCharacter);
         }
     }
-    if !bytes[first_pad..].iter().all(|&b| b == 0x3D) {
+    if bytes.iter().skip(first_pad).all(|&b| b == 0x3D) {
+        Ok(out)
+    } else {
         // there was a non padding character
-        return Err(InvalidHashCharacter);
+        Err(InvalidHashCharacter)
     }
 
-    Ok(out)
 }
 
 #[cfg(test)]

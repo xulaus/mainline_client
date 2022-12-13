@@ -24,8 +24,8 @@ fn rand_buff<const N: usize>() -> [u8; N] {
 fn ip_from_ping<'a>(msg: &'a KRPCMessage) -> Option<&'a [u8; 4]> {
     if let KRPCMessageDetails::Response(response) = &msg.message &&
         let KRPCResponse::Ping { ip: opt_ip, .. } = response &&
-        let Some(ip) = opt_ip &&
-        let messages::Ip::V4 { addr, ..} = ip {
+        let Some(ip) = opt_ip {
+        let messages::Ip::V4 { addr, ..} = ip;
         Some(addr)
     } else {
         None

@@ -1,7 +1,7 @@
 pub mod bencode;
 use bencode::*;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum KRPCError {
     UnknownError(String),
     GenericError(String),
@@ -10,7 +10,7 @@ pub enum KRPCError {
     MethodUnknown(String),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum KRPCQuery<'a> {
     Ping {
         id: &'a [u8; 20],
@@ -32,7 +32,7 @@ pub enum KRPCQuery<'a> {
 //     port: &'a [u8; 2]
 // }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum KRPCResponse<'a> {
     Ping {
         ip: Option<Ip<'a>>,
@@ -52,14 +52,14 @@ pub enum KRPCResponse<'a> {
     },
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum KRPCMessageDetails<'a> {
     Error(KRPCError),
     Query(KRPCQuery<'a>),
     Response(KRPCResponse<'a>),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum Ip<'a> {
     V4 {
         addr: &'a [u8; 4],
@@ -67,7 +67,7 @@ pub enum Ip<'a> {
     },
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct KRPCMessage<'a> {
     pub transaction_id: &'a [u8],
     pub message: KRPCMessageDetails<'a>,
@@ -79,7 +79,7 @@ impl<'a> ToBencode for KRPCMessage<'a> {
         // encoded message correctly. Rewrite would be hard without more allocations though
         // and it works for now
         let mut vec1 = Vec::with_capacity(256);
-        vec1.push('d' as u8);
+        vec1.push(b'd');
 
         match &self.message {
             KRPCMessageDetails::Error(err) => match err {
@@ -147,21 +147,21 @@ impl<'a> ToBencode for KRPCMessage<'a> {
         vec1.extend(self.transaction_id);
 
         let message_type = match self.message {
-            KRPCMessageDetails::Error(_) => 'e' as u8,
-            KRPCMessageDetails::Query(_) => 'q' as u8,
-            KRPCMessageDetails::Response(_) => 'r' as u8,
+            KRPCMessageDetails::Error(_) => b'e',
+            KRPCMessageDetails::Query(_) => b'q',
+            KRPCMessageDetails::Response(_) => b'r',
         };
         vec1.extend(b"1:y1:");
         vec1.push(message_type);
 
-        vec1.push('e' as u8);
+        vec1.push(b'e');
         vec1
     }
 }
 
-fn to_fixed<'a, const N: usize>(i: &'a [u8]) -> Option<&'a [u8; N]> {
+fn to_fixed<const N: usize>(i: &[u8]) -> Option<& [u8; N]> {
     if i.len() == N {
-        Some(unsafe { ::std::mem::transmute(i.as_ptr()) })
+        Some(unsafe { &*(i.as_ptr() as *const [u8; N]) })
     } else {
         None
     }
@@ -293,21 +293,14 @@ impl<'a> FromBencode<'a> for KRPCMessage<'a> {
             }
         }
 
-        let ip = {
-            if let Some(bytes) = ip {
-                Some(Ip::V4 {
-                    addr: to_fixed::<4>(&bytes[0..4]).unwrap(),
-                    port: to_fixed::<2>(&bytes[4..]).unwrap(),
-                })
-            } else {
-                None
-            }
-        };
+        let ip = ip.map(|bytes| Ip::V4 {
+                     addr: to_fixed::<4>(&bytes[0..4]).unwrap(),
+                     port: to_fixed::<2>(&bytes[4..]).unwrap(),
+                 });
 
         Ok(KRPCMessage {
             transaction_id: transaction_id
-                .ok_or(DecodingError::MissingRequiredField)?
-                .into(),
+                .ok_or(DecodingError::MissingRequiredField)?,
             message: match message_type {
                 MessageType::Error => KRPCMessageDetails::Error(
                     error_details.ok_or(DecodingError::MissingRequiredField)?,
