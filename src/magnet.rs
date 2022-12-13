@@ -183,23 +183,52 @@ mod tests {
         assert_eq!(MagnetHash::from_str(s), Ok(expected));
     }
 
-    #[test]
-    fn file_from_str() {
-        let magnet1 =
-            MagnetFiles::from_str("magnet:?xt=urn:md5:c12fe1c06bba254a9dc9f519b335aa7c1367a88a");
-        let magnet2 = MagnetFiles::from_str(
-            "magnet:?xt=urn%3Amd5%3Ac12fe1c06bba254a9dc9f519b335aa7c1367a88a",
-        );
-
-        assert_eq!(magnet1, magnet2); // Errors
-
-        let magnet1 =
-            MagnetFiles::from_str("magnet:?xt.abc=urn:md5:c12fe1c06bba254a9dc9f519b335aa7c");
-        let magnet2 = MagnetFiles::from_str(
-            "magnet:?xt.abc=urn%3amd5%3Ac12fe1c06bba254a9dc9f519b335aa7c",
-        );
-
-        assert_eq!(magnet1, magnet2);
+    #[test_case(
+        "xt.abc=urn:md5:c12fe1c06bba254a9dc9f519b335aa7c",
+        MagnetFile {
+            hash: MagnetHash::MD5([193, 47, 225, 192, 107, 186, 37, 74, 157, 201, 245, 25, 179, 53, 170, 124]),
+            display_name: "".to_owned()
+        }
+        ; "MD5 Decode"
+    )]
+    #[test_case(
+        "xt.abc=urn%3amd5%3ac12fe1c06bba254a9dc9f519b335aa7c",
+        MagnetFile {
+            hash: MagnetHash::MD5([193, 47, 225, 192, 107, 186, 37, 74, 157, 201, 245, 25, 179, 53, 170, 124]),
+            display_name: "".to_owned()
+        }
+        ; "MD5 Decode with URI encoding"
+    )]
+    #[test_case(
+        "xt=urn:sha1:YEX6DQDLXISUVHOJ6UM3GNNKPQJWPKEK",
+        MagnetFile {
+            hash: MagnetHash::SHA1([193, 47, 225, 192, 107, 186, 37, 74, 157, 201, 245, 25, 179, 53, 170, 124,  19, 103, 168, 138]),
+            display_name: "".to_owned()
+        }
+        ; "SHA1 Decode"
+    )]
+    #[test_case(
+        "xt.abc=urn:btih:YEX6DQDLXISUVHOJ6UM3GNNKPQJWPKEK",
+        MagnetFile {
+            hash: MagnetHash::BTIH([193, 47, 225, 192, 107, 186, 37, 74, 157, 201, 245, 25, 179, 53, 170, 124,  19, 103, 168, 138]),
+            display_name: "".to_owned()
+        }
+        ; "BITH base32 Decode"
+    )]
+    #[test_case(
+        "xt.abc=urn:btih:c12fe1c06bba254a9dc9f519b335aa7c1367a88a",
+        MagnetFile {
+            hash: MagnetHash::BTIH([193, 47, 225, 192, 107, 186, 37, 74, 157, 201, 245, 25, 179, 53, 170, 124,  19, 103, 168, 138]),
+            display_name: "".to_owned()
+        }
+        ; "BITH hex Decode"
+    )]
+    fn file_from_str(magnet_params: &str, expected: MagnetFile) {
+        let magnet = MagnetFiles::from_str(&format!("magnet:?{}", magnet_params));
+        assert!(magnet.is_ok());
+        let magent_files = magnet.unwrap();
+        let magnet = magent_files.files.first();
+        assert_eq!(magnet, Some(&expected));
     }
 
     #[test]
