@@ -1,4 +1,4 @@
-use mainline_client::encodings::{hex_to_byte, bytes_from_base32, bytes_from_hex, EncodingError};
+use mainline_client::encodings::{bytes_from_base32, bytes_from_hex, hex_to_byte, EncodingError};
 
 use std::{borrow::Cow, collections::HashMap, error::Error, fmt, str::FromStr};
 
@@ -161,8 +161,8 @@ impl FromStr for MagnetFiles {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use MagnetURIError::*;
     use test_case::test_case;
+    use MagnetURIError::*;
 
     #[test_case(
         "urn:md5:c12fe1c06bba254a9dc9f519b335aa7c",

@@ -1,17 +1,17 @@
 #[derive(Debug, PartialEq, Eq)]
 pub enum EncodingError {
     InvalidHashCharacter,
-    InvalidHashLength
+    InvalidHashLength,
 }
 use EncodingError::*;
 
 #[inline]
 fn hex_to_nibble(h: u8) -> Result<u8, EncodingError> {
     match h {
-        (0x30..=0x39) => Ok(h - 0x30), // Decode Numbers
+        (0x30..=0x39) => Ok(h - 0x30),      // Decode Numbers
         (0x61..=0x66) => Ok(h - 0x61 + 10), // Decode lower case
         (0x41..=0x46) => Ok(h - 0x41 + 10), // Decode upper case
-        _ => Err(InvalidHashCharacter)
+        _ => Err(InvalidHashCharacter),
     }
 }
 
@@ -36,15 +36,14 @@ pub fn bytes_from_hex<const LEN: usize>(hex: &str) -> Result<[u8; LEN], Encoding
 fn base32_decode_char(h: u8) -> Result<u8, EncodingError> {
     // RFC 4648 base 32
     match h {
-        (0x61..=0x87) => Ok(h - 0x61), // Decode lower case
-        (0x41..=0x67) => Ok(h - 0x41),  // Decode upper case
+        (0x61..=0x87) => Ok(h - 0x61),      // Decode lower case
+        (0x41..=0x67) => Ok(h - 0x41),      // Decode upper case
         (0x32..=0x37) => Ok(h - 0x32 + 26), // Decode Numbers from 2 to 7
-        _ => Err(InvalidHashCharacter)
+        _ => Err(InvalidHashCharacter),
     }
 }
 
 pub fn bytes_from_base32<const LEN: usize>(enc: &str) -> Result<[u8; LEN], EncodingError> {
-
     if enc.len() != ((LEN + 4) / 5) * 8 {
         return Err(InvalidHashLength);
     }
@@ -90,7 +89,6 @@ pub fn bytes_from_base32<const LEN: usize>(enc: &str) -> Result<[u8; LEN], Encod
         // there was a non padding character
         Err(InvalidHashCharacter)
     }
-
 }
 
 #[cfg(test)]
@@ -123,21 +121,21 @@ mod tests {
     #[test_case("abCQ====", Ok([0x00, 0x45]); "Correct decoding")]
     #[test_case("ABC3===", Err(InvalidHashLength); "Encoding too short")]
     #[test_case("ABC3=====", Err(InvalidHashLength); "Encoding too long")]
-    fn test_2_bytes_from_base32(s: &str, expected: Result<[u8; 2],  EncodingError>) {
+    fn test_2_bytes_from_base32(s: &str, expected: Result<[u8; 2], EncodingError>) {
         assert_eq!(bytes_from_base32::<2>(s), expected);
     }
 
     #[test_case("74======", Ok([0xFF]); "Correct decoding")]
     #[test_case("Ab======", Err(InvalidHashCharacter))]
     #[test_case("ABC1====", Err(InvalidHashCharacter))]
-    fn test_1_bytes_from_base32(s: &str, expected: Result<[u8; 1],  EncodingError>) {
+    fn test_1_bytes_from_base32(s: &str, expected: Result<[u8; 1], EncodingError>) {
         assert_eq!(bytes_from_base32::<1>(s), expected);
     }
 
     #[test_case("GL3Sda7y2A======", Ok([0x32, 0xf7, 0x21, 0x83, 0xf8, 0xd0]); "Correct decoding")]
     #[test_case("ABC7===========", Err(InvalidHashLength); "Encoding too short")]
     #[test_case("ABC3=============", Err(InvalidHashLength); "Encoding too long")]
-    fn test_6_bytes_from_base32(s: &str, expected: Result<[u8; 6],  EncodingError>) {
+    fn test_6_bytes_from_base32(s: &str, expected: Result<[u8; 6], EncodingError>) {
         assert_eq!(bytes_from_base32::<6>(s), expected);
     }
 
@@ -148,7 +146,6 @@ mod tests {
         assert_eq!(Ok([0xFF, 0xFF, 0xFF, 0xFF, 0xFF]), full_chunk);
         let full_chunk = bytes_from_base32::<5>("GLASda73");
         assert_eq!(Ok([0x32, 0xc1, 0x21, 0x83, 0xfb]), full_chunk);
-
 
         // 11 bytes (Must read over two full chunks sucessfully)
         let three_chunks = bytes_from_base32::<11>("77777777GL3Sda7y2A======");
@@ -165,7 +162,6 @@ mod tests {
         let bad_pad = bytes_from_base32::<3>("77776=1=");
         assert_eq!(bad_pad, Err(InvalidHashCharacter));
     }
-
 
     #[test_case(b"0", Ok(0x0); "0")]
     #[test_case(b"1", Ok(0x1); "1")]

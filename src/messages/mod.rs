@@ -159,7 +159,7 @@ impl<'a> ToBencode for KRPCMessage<'a> {
     }
 }
 
-fn to_fixed<const N: usize>(i: &[u8]) -> Option<& [u8; N]> {
+fn to_fixed<const N: usize>(i: &[u8]) -> Option<&[u8; N]> {
     if i.len() == N {
         Some(unsafe { &*(i.as_ptr() as *const [u8; N]) })
     } else {
@@ -294,13 +294,12 @@ impl<'a> FromBencode<'a> for KRPCMessage<'a> {
         }
 
         let ip = ip.map(|bytes| Ip::V4 {
-                     addr: to_fixed::<4>(&bytes[0..4]).unwrap(),
-                     port: to_fixed::<2>(&bytes[4..]).unwrap(),
-                 });
+            addr: to_fixed::<4>(&bytes[0..4]).unwrap(),
+            port: to_fixed::<2>(&bytes[4..]).unwrap(),
+        });
 
         Ok(KRPCMessage {
-            transaction_id: transaction_id
-                .ok_or(DecodingError::MissingRequiredField)?,
+            transaction_id: transaction_id.ok_or(DecodingError::MissingRequiredField)?,
             message: match message_type {
                 MessageType::Error => KRPCMessageDetails::Error(
                     error_details.ok_or(DecodingError::MissingRequiredField)?,
